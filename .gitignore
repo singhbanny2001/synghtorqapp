@@ -1,0 +1,8 @@
+node_modules
+out
+android/.gradle
+android/**/build
+android/app/debug
+*.jks
+*.keystore
+local.properties
