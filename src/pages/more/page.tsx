@@ -12,9 +12,9 @@ import {
   type GeofenceInput,
   type GeofenceRecord,
 } from '@/mocks/geofenceData';
-import { vehicles } from '@/mocks/fleetData';
-import { teamMembers } from '@/mocks/teamData';
 import InternalPageHeader from '@/components/InternalPageHeader';
+import { useFleetVehicles } from '@/mocks/fleetStore';
+import { useDrivers, type DriverRecord } from '@/mocks/driversStore';
 
 type AddressSuggestion = {
   display_name: string;
@@ -119,7 +119,7 @@ function makeShareToken() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createDefaultShareForm(): ShareLinkForm {
+function createDefaultShareForm(vehicles: Array<{ id: string }>, drivers: DriverRecord[]) {
   const start = new Date();
   start.setSeconds(0, 0);
   const expiry = new Date(start);
@@ -130,7 +130,7 @@ function createDefaultShareForm(): ShareLinkForm {
     shareName: '',
     startFrom: formatDateTimeInput(start),
     expiryAt: formatDateTimeInput(expiry),
-    driverId: teamMembers.find((member) => member.status === 'active')?.id ?? '',
+    driverId: drivers.find((driver) => driver.status === 'Active')?.id ?? '',
     remarks: '',
     showSpeed: true,
     token: makeShareToken(),
@@ -139,6 +139,8 @@ function createDefaultShareForm(): ShareLinkForm {
 
 export default function More() {
   const navigate = useNavigate();
+  const vehicles = useFleetVehicles();
+  const drivers = useDrivers();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isDark, toggleTheme } = useTheme();
   const { user, can, isViewer, logout } = useAuth();
@@ -160,7 +162,7 @@ export default function More() {
   const [shareToast, setShareToast] = useState(false);
   const [shareStatus, setShareStatus] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
-  const [shareForm, setShareForm] = useState<ShareLinkForm>(() => createDefaultShareForm());
+  const [shareForm, setShareForm] = useState<ShareLinkForm>(() => createDefaultShareForm(vehicles, drivers));
   const [showSupportModal, setShowSupportModal] = useState(false);
 
   useEffect(() => {
@@ -188,17 +190,39 @@ export default function More() {
   };
 
   const registeredDrivers = useMemo(
-    () => teamMembers.filter((member) => member.status === 'active'),
-    [],
+    () => drivers.filter((driver) => driver.status === 'Active'),
+    [drivers],
   );
   const selectedShareVehicle = useMemo(
     () => vehicles.find((vehicle) => vehicle.id === shareForm.vehicleId),
     [shareForm.vehicleId],
   );
   const selectedShareDriver = useMemo(
-    () => registeredDrivers.find((member) => member.id === shareForm.driverId),
+    () => registeredDrivers.find((driver) => driver.id === shareForm.driverId),
     [registeredDrivers, shareForm.driverId],
   );
+
+  useEffect(() => {
+    setShareForm((current) => {
+      const nextVehicleId = vehicles.some((vehicle) => vehicle.id === current.vehicleId)
+        ? current.vehicleId
+        : vehicles[0]?.id ?? '';
+      const nextDriverId = registeredDrivers.some((driver) => driver.id === current.driverId)
+        ? current.driverId
+        : registeredDrivers[0]?.id ?? '';
+
+      if (nextVehicleId === current.vehicleId && nextDriverId === current.driverId) {
+        return current;
+      }
+
+      return {
+        ...current,
+        vehicleId: nextVehicleId,
+        driverId: nextDriverId,
+        token: makeShareToken(),
+      };
+    });
+  }, [registeredDrivers, vehicles]);
   const buildShareableLink = (form: ShareLinkForm) => {
     const params = new URLSearchParams({
       vehicle: form.vehicleId,
@@ -581,10 +605,21 @@ export default function More() {
           {/* Settings Sub-items */}
           <div
             className={`overflow-hidden transition-all duration-300 ${
-              settingsExpanded ? 'max-h-80 mt-[10px] opacity-100' : 'max-h-0 opacity-0'
+              settingsExpanded ? 'max-h-[28rem] mt-[10px] opacity-100' : 'max-h-0 opacity-0'
             }`}
           >
             <div className="ml-2 space-y-[10px]">
+              {can('settings') && <button
+                onClick={() => navigate('/drivers')}
+                className={moreMenuRowClass}
+              >
+                <div className={moreMenuIconClass}>
+                  <i className="ph-fill ph-user-list text-[18px]" />
+                </div>
+                <span className={moreMenuLabelClass}>Drivers</span>
+                <i className="ph ph-caret-right text-text-tertiary text-xl" />
+              </button>}
+
               {/* Devices */}
               {can('settings') && <button
                 onClick={() => navigate('/devices')}
@@ -776,7 +811,7 @@ export default function More() {
                 >
                   {registeredDrivers.map((driver) => (
                     <option key={driver.id} value={driver.id}>
-                      {driver.name} - {getRoleLabel(driver.role)}
+                      {driver.name}
                     </option>
                   ))}
                 </select>
@@ -789,7 +824,7 @@ export default function More() {
                 </div>
                 <div className="rounded-xl border border-surface-border bg-surface-subtle/70 px-2.5 py-1.5">
                   <p className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Driver Contact</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-text-primary">{selectedShareDriver?.phone ?? 'No contact'}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-text-primary">{selectedShareDriver?.contactNumber ?? 'No contact'}</p>
                 </div>
               </div>
 

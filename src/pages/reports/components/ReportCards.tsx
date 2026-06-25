@@ -4,7 +4,7 @@ import {
   generalReportRecords, acRecords, fuelFillingRecords,
   idleRecords,
 } from '@/mocks/reportsData';
-import { vehicles } from '@/mocks/fleetData';
+import { listFleetVehicles } from '@/mocks/fleetStore';
 
 function isDateInRange(dateStr: string, range: string, customStart?: string, customEnd?: string): boolean {
   if (range === 'all') return true;
@@ -69,6 +69,7 @@ function severityIconBg(severity: string) {
 }
 
 function canonicalizeVehicleRecord<T extends { vehicleId: string; vehicle: string; plate: string; driver?: string }>(record: T): T {
+  const vehicles = listFleetVehicles();
   const vehicle = vehicles.find((item) => item.id === record.vehicleId);
   return vehicle
     ? {

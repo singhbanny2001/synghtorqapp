@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { teamMembers as initialTeamMembers, currentUserId } from '@/mocks/teamData';
-import { vehicles } from '@/mocks/fleetData';
 import type { TeamMember } from '@/mocks/teamData';
 import { getRoleLabel, useAuth, type UserRole } from '@/context/AuthContext';
 import InternalPageHeader from '@/components/InternalPageHeader';
+import { useFleetVehicles } from '@/mocks/fleetStore';
 
 const roleBadgeColors: Record<string, string> = {
   manager: 'bg-indigo-50 text-indigo-700 border-indigo-200',
@@ -17,6 +17,7 @@ const editableRoles: UserRole[] = ['manager', 'supervisor', 'viewer'];
 
 export default function TeamManagement() {
   const navigate = useNavigate();
+  const vehicles = useFleetVehicles();
   const { can } = useAuth();
   const [teamList, setTeamList] = useState<TeamMember[]>(initialTeamMembers);
   const [showCreateModal, setShowCreateModal] = useState(false);

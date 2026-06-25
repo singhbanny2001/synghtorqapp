@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { serviceHistory, vendorsList } from '@/mocks/servicesData';
-import { vehicles } from '@/mocks/fleetData';
 import type { ServiceItem } from '@/mocks/servicesData';
 import {
   REMINDER_STORAGE_KEY,
@@ -14,6 +13,7 @@ import {
 } from '@/mocks/reminderData';
 import InternalPageHeader from '@/components/InternalPageHeader';
 import { scheduleScrollAppToTop } from '@/utils/scrollToTop';
+import { useFleetVehicles } from '@/mocks/fleetStore';
 
 const categories = ['All', 'Maintenance', 'Insurance', 'Registration', 'Inspection', 'Tire', 'Brake'];
 
@@ -169,6 +169,7 @@ function statusBadge(status: string) {
 }
 
 export default function Services() {
+  const vehicles = useFleetVehicles();
   const [activeCategory, setActiveCategory] = useState('All');
   const [viewMode, setViewMode] = useState<'upcoming' | 'history'>('upcoming');
   const [selectedVehicle, setSelectedVehicle] = useState('all');

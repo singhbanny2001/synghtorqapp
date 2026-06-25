@@ -354,6 +354,34 @@ export default function Account() {
           </div>
         </div>
 
+        <div>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-widest">Settings Shortcuts</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <button
+              type="button"
+              onClick={() => navigate('/drivers')}
+              className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-left hover:shadow-md hover:border-slate-300 transition-all duration-200"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-50 text-blue-600">
+                  <i className="ph ph-user-list text-2xl" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-base font-bold text-slate-900">Driver Management</h3>
+                    <i className="ph ph-caret-right text-slate-400 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    View all drivers, contact number, mobile number, and add, edit, or delete drivers.
+                  </p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
         {/* My Devices List */}
         <div>
           <div className="flex items-center justify-between mb-5">

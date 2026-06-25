@@ -881,7 +881,7 @@ export default function Playback() {
           onClick={() => setShowVehiclePicker(false)}
         >
           <div
-            className="w-full sm:w-[420px] sm:rounded-2xl rounded-t-2xl bg-surface-card border border-surface-border shadow-xl max-h-[70vh] overflow-y-auto"
+            className="flex h-[min(72vh,calc(100dvh-7rem))] w-full flex-col overflow-hidden rounded-t-2xl border border-surface-border bg-surface-card shadow-xl sm:h-[70vh] sm:w-[420px] sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sticky top-0 z-10 flex items-center justify-between px-5 pt-6 pb-3 bg-surface-card">
@@ -893,7 +893,10 @@ export default function Playback() {
                 <i className="ph ph-x text-lg" />
               </button>
             </div>
-            <div className="px-5 pb-6 space-y-2">
+            <div
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 space-y-2 scroll-momentum"
+              style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
+            >
               {playbackVehicles.map((v) => (
                 <button
                   key={v.id}

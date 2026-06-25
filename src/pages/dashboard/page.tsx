@@ -2,10 +2,12 @@ import { useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from '@/context/ThemeContext';
 import BrandWaveBackground from '@/components/BrandWaveBackground';
-import { vehicles } from '@/mocks/fleetData';
+import type { Vehicle } from '@/mocks/fleetData';
 import { useAuth } from '@/context/AuthContext';
 import { getVehicleRuntimeStatus } from '@/utils/vehicleStatus';
 import { getVehicleColorClass } from '@/utils/vehicleIconColor';
+import DeviceAssetIcon from '@/components/feature/DeviceAssetIcon';
+import { useFleetVehicles } from '@/mocks/fleetStore';
 import {
   ALERT_NOTIFICATIONS_STORAGE_KEY,
   listAlertNotifications,
@@ -262,7 +264,7 @@ function getAlertNotificationStyle(severity: AlertNotification['severity']) {
   };
 }
 
-function getVehicleTodayMovement(vehicle: typeof vehicles[number]) {
+function getVehicleTodayMovement(vehicle: Vehicle) {
   const seed = vehicle.odometer % 37;
   const status = getVehicleRuntimeStatus(vehicle);
   const runMinutes = status === 'moving' ? 212 + seed : status === 'idle' ? 126 + seed : 84 + seed;
@@ -464,6 +466,7 @@ function StatCard({ label, value, subValue, icon, tone = 'moving', onClick }: St
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const vehicles = useFleetVehicles();
   const { user } = useAuth();
   const [period, setPeriod] = useState<Period>('today');
   const [showFilter, setShowFilter] = useState(false);
@@ -951,8 +954,12 @@ export default function Dashboard() {
                 return (
                   <>
               <div className="flex items-start gap-3">
-                <div className="dashboard-eagle-vehicle-icon" aria-hidden="true">
-                  <span className={`vehicles-reference-icon ${getVehicleColorClass(selectedVehicle, getVehicleRuntimeStatus(selectedVehicle))}`} />
+                <div className="dashboard-eagle-vehicle-icon flex items-center justify-center" aria-hidden="true">
+                  <DeviceAssetIcon
+                    variant={selectedVehicle.vehicleType}
+                    size="md"
+                    status={getVehicleRuntimeStatus(selectedVehicle)}
+                  />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">

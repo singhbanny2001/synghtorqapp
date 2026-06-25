@@ -1,10 +1,11 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useRef, useState, useMemo } from 'react';
-import { vehicles } from '@/mocks/fleetData';
 import type { Vehicle } from '@/mocks/fleetData';
 import { getVehicleRuntimeStatus } from '@/utils/vehicleStatus';
 import { getVehicleColorClass } from '@/utils/vehicleIconColor';
 import InternalPageHeader from '@/components/InternalPageHeader';
+import DeviceAssetIcon from '@/components/feature/DeviceAssetIcon';
+import { useFleetVehicles } from '@/mocks/fleetStore';
 
 const tabs = ['All', 'Moving', 'Stopped', 'Idle', 'Offline'];
 
@@ -107,8 +108,8 @@ function VehicleListCard({
       >
         <div className="vehicles-classic-row vehicles-classic-row-locked">
           <div className="vehicles-classic-vehicle-col vehicles-classic-vehicle-col-locked">
-            <div className="vehicle-list-plain-icon" aria-hidden="true">
-              <span className="vehicles-reference-icon is-subscription-locked" />
+            <div className="vehicle-list-plain-icon flex items-center justify-center" aria-hidden="true">
+              <DeviceAssetIcon variant={vehicle.vehicleType} size="md" tone="locked" />
             </div>
           </div>
 
@@ -151,8 +152,8 @@ function VehicleListCard({
     >
       <div className="vehicles-classic-row">
         <div className="vehicles-classic-vehicle-col">
-          <div className="vehicle-list-plain-icon" aria-hidden="true">
-            <span className={`vehicles-reference-icon ${vehicleColorClass}`} />
+          <div className="vehicle-list-plain-icon flex items-center justify-center" aria-hidden="true">
+            <DeviceAssetIcon variant={vehicle.vehicleType} size="md" status={runtimeStatus as 'moving' | 'stopped' | 'idle' | 'offline' | 'maintenance'} />
           </div>
           <span>{vehicle.odometer.toLocaleString()} km</span>
         </div>
@@ -191,6 +192,7 @@ function VehicleListCard({
 
 export default function Vehicles() {
   const navigate = useNavigate();
+  const vehicles = useFleetVehicles();
   const [searchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);

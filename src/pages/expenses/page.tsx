@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { expensesData, vehicleExpenseSummaries } from '@/mocks/expensesData';
-import { vehicles } from '@/mocks/fleetData';
 import type { ExpenseItem } from '@/mocks/expensesData';
 import {
   listFuelEvents,
@@ -12,6 +11,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { downloadCSV } from '@/utils/exportUtils';
 import { scheduleScrollAppToTop } from '@/utils/scrollToTop';
+import { useFleetVehicles } from '@/mocks/fleetStore';
 
 const categoryFilters = ['Fuel', 'All', 'Maintenance', 'Parts', 'Insurance', 'Toll', 'Other'];
 const fuelTabs: Array<{ key: FuelEventType; label: string; icon: string }> = [
@@ -118,6 +118,7 @@ function formatMoney(value: number) {
 
 export default function Expenses() {
   const navigate = useNavigate();
+  const vehicles = useFleetVehicles();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchKey = searchParams.toString();

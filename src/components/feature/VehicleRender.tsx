@@ -1,4 +1,5 @@
 import VehicleTopIcon from './VehicleTopIcon';
+import DeviceAssetIcon, { hasDeviceAssetIcon } from './DeviceAssetIcon';
 import type { VehicleIconVariant } from '@/mocks/deviceIcons';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
@@ -36,7 +37,7 @@ export default function VehicleRender({
   compact = false,
 }: VehicleRenderProps) {
   const [imageFailed, setImageFailed] = useState(false);
-  const showImage = Boolean(image && !imageFailed);
+  const showImage = Boolean(image && !imageFailed && !hasDeviceAssetIcon(variant));
 
   useEffect(() => {
     setImageFailed(false);
@@ -57,12 +58,20 @@ export default function VehicleRender({
           onError={() => setImageFailed(true)}
         />
       ) : (
-        <VehicleTopIcon
-          variant={variant}
-          heading={heading}
-          size={compact ? 'md' : 'lg'}
-          color={color || getVariantIconColor(variant)}
-        />
+        hasDeviceAssetIcon(variant) ? (
+          <DeviceAssetIcon
+            variant={variant}
+            size={compact ? 'md' : 'lg'}
+            status={status}
+          />
+        ) : (
+          <VehicleTopIcon
+            variant={variant}
+            heading={heading}
+            size={compact ? 'md' : 'lg'}
+            color={color || getVariantIconColor(variant)}
+          />
+        )
       )}
     </div>
   );

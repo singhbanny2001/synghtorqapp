@@ -1,5 +1,6 @@
 import type { VehicleDetailData } from '@/mocks/vehicleDetailData';
 import { getVehicleRuntimeStatus } from '@/utils/vehicleStatus';
+import DeviceAssetIcon from '@/components/feature/DeviceAssetIcon';
 
 interface Props {
   data: VehicleDetailData;
@@ -21,9 +22,13 @@ export default function MapSummaryPanel({ data }: Props) {
 
   return (
     <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
-      <div className="grid grid-cols-[34px_minmax(0,1fr)_48px] gap-2 px-4 pt-3">
+      <div className="grid grid-cols-[58px_minmax(0,1fr)_48px] gap-2 px-4 pt-3">
         <div className="flex items-start justify-center pt-0.5">
-          <span className={`vehicle-detail-reference-icon is-${runtimeStatus}`} aria-hidden="true" />
+          <DeviceAssetIcon
+            variant={data.vehicleType}
+            size="md"
+            status={runtimeStatus}
+          />
         </div>
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1">

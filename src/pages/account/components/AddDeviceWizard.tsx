@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { Device } from '@/mocks/accountData';
-import { deviceBrands, planOptions } from '@/mocks/deviceBrands';
+import { deviceBrands } from '@/mocks/deviceBrands';
 
 interface AddDeviceWizardProps {
   isOpen: boolean;
@@ -15,7 +15,6 @@ const steps = [
   { num: 3, title: 'Model', icon: 'ph ph-gear' },
   { num: 4, title: 'SIM Number', icon: 'ph ph-sim-card' },
   { num: 5, title: 'Vehicle Details', icon: 'ph ph-car' },
-  { num: 6, title: 'Select Plan', icon: 'ph ph-crown' },
 ];
 
 const FINAL_STEP = steps.length;
@@ -31,7 +30,6 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
   const [simNumber, setSimNumber] = useState('');
   const [vehicleName, setVehicleName] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
-  const [planType, setPlanType] = useState<'Basic' | 'Pro' | 'Enterprise'>('Pro');
 
   const [error, setError] = useState('');
 
@@ -45,7 +43,6 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
     setSimNumber('');
     setVehicleName('');
     setPlateNumber('');
-    setPlanType('Pro');
     setError('');
   }, []);
 
@@ -100,12 +97,6 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
           return false;
         }
         return true;
-      case 6:
-        if (!planType) {
-          setError('Please select a plan');
-          return false;
-        }
-        return true;
       default:
         return true;
     }
@@ -129,7 +120,6 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
 
   const handleSubmit = () => {
     if (!validateStep()) return;
-    const selectedPlan = planOptions.find((p) => p.id === planType);
     const today = new Date();
     const expiry = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
     const diffDays = 30;
@@ -143,8 +133,8 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
       expiryDate: expiry.toISOString().split('T')[0],
       daysRemaining: diffDays,
       status: 'active',
-      planType,
-      monthlyCost: selectedPlan?.price || 29,
+      planType: 'Pro',
+      monthlyCost: 29,
       autoRenewal: false,
       hasFuelSensor: true,
     };
@@ -158,11 +148,11 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       onClick={handleClose}
     >
       <div
-        className="w-full sm:w-[480px] sm:rounded-2xl rounded-t-2xl bg-surface-card border border-surface-border shadow-elevated overflow-hidden flex flex-col max-h-[92vh]"
+        className="flex max-h-[min(88dvh,760px)] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-elevated"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -221,7 +211,10 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 min-h-[200px]">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+          style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+        >
           <div
             className={`transition-all duration-300 ${
               direction === 'next' ? 'animate-slide-up' : 'animate-fade-in'
@@ -454,82 +447,6 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
               </div>
             )}
 
-            {/* Step 6: Plan */}
-            {step === 6 && (
-              <div className="space-y-3">
-                {planOptions.map((plan) => (
-                  <button
-                    key={plan.id}
-                    onClick={() => {
-                      setPlanType(plan.id as 'Basic' | 'Pro' | 'Enterprise');
-                      setError('');
-                    }}
-                    className={`w-full text-left p-4 rounded-xl border transition-all duration-200 btn-press relative ${
-                      planType === plan.id
-                        ? `bg-surface-elevated ${plan.id === 'Enterprise' ? 'border-accent' : 'border-primary'}`
-                        : 'bg-surface-dark border-surface-border hover:border-primary/20'
-                    }`}
-                  >
-                    {plan.badge && (
-                      <span className={`absolute top-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        plan.id === 'Enterprise'
-                          ? 'bg-accent/10 text-accent'
-                          : 'bg-primary/10 text-primary'
-                      }`}>
-                        {plan.badge}
-                      </span>
-                    )}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 flex items-center justify-center rounded-lg ${
-                          planType === plan.id
-                            ? plan.id === 'Enterprise' ? 'bg-accent/10' : 'bg-primary/10'
-                            : 'bg-surface-hover'
-                        }`}>
-                          <i className={`ph ph-crown ${
-                            planType === plan.id
-                              ? plan.id === 'Enterprise' ? 'text-accent' : 'text-primary'
-                              : 'text-text-tertiary'
-                          }`} />
-                        </div>
-                        <span className={`text-body font-bold ${
-                          planType === plan.id
-                            ? plan.id === 'Enterprise' ? 'text-accent' : 'text-primary'
-                            : 'text-text-primary'
-                        }`}>
-                          {plan.name}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-title font-bold text-text-primary">₱{plan.price}</span>
-                        <span className="text-caption-sm text-text-muted">/{plan.period}</span>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5 pl-10">
-                      {plan.features.map((feat) => (
-                        <div key={feat} className="flex items-center gap-1.5">
-                          <i className={`ph ph-check text-xs ${
-                            planType === plan.id
-                              ? plan.id === 'Enterprise' ? 'text-accent' : 'text-primary'
-                              : 'text-text-muted'
-                          }`} />
-                          <span className="text-caption-sm text-text-secondary">{feat}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {planType === plan.id && (
-                      <div className={`mt-3 pt-3 border-t ${plan.id === 'Enterprise' ? 'border-accent/20' : 'border-primary/20'} flex items-center gap-2`}>
-                        <i className={`ph ph-checks ${plan.id === 'Enterprise' ? 'text-accent' : 'text-primary'}`} />
-                        <span className={`text-caption-sm font-semibold ${plan.id === 'Enterprise' ? 'text-accent' : 'text-primary'}`}>
-                          Selected
-                        </span>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
             {/* Error */}
             {error && (
               <div className="mt-4 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-danger-light border border-danger-light">
@@ -541,7 +458,7 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
         </div>
 
         {/* Footer */}
-        <div className="flex-shrink-0 px-5 py-4 border-t border-surface-border">
+        <div className="flex-shrink-0 border-t border-surface-border bg-surface-card px-5 py-4">
           <div className="flex gap-3">
             {step > 1 && (
               <button

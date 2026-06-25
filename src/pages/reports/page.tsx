@@ -6,12 +6,12 @@ import {
   overspeedRecords, stoppageRecords, tripSummaryRecords,
   generalReportRecords, acRecords, fuelFillingRecords, idleRecords,
 } from '@/mocks/reportsData';
-import { vehicles } from '@/mocks/fleetData';
 import {
   ALERT_NOTIFICATIONS_STORAGE_KEY,
   listAlertNotifications,
   type AlertNotification,
 } from '@/mocks/alertData';
+import { listFleetVehicles, useFleetVehicles } from '@/mocks/fleetStore';
 import {
   OverspeedReport, StoppageReport, TripSummaryReport,
   GeneralReport, ACReport, FuelFillingReport, IdleReport,
@@ -19,6 +19,7 @@ import {
 import ExportMenu from '@/components/feature/ExportMenu';
 import VehicleRender from '@/components/feature/VehicleRender';
 import { downloadCSV, printTableAsPDF } from '@/utils/exportUtils';
+import { scheduleScrollAppToTop } from '@/utils/scrollToTop';
 import { getVehicleIconColor } from '@/utils/vehicleIconColor';
 import InternalPageHeader from '@/components/InternalPageHeader';
 
@@ -81,26 +82,28 @@ const tabs = [
   { key: 'fuel', label: 'Fuel', icon: 'ph ph-gas-pump' },
   { key: 'driver', label: 'Drivers', icon: 'ph ph-user' },
   { key: 'cost', label: 'Cost', icon: 'ph ph-currency-dollar' },
-  { key: 'events', label: 'Alert Report', icon: 'ph ph-warning' },
-  { key: 'overspeed', label: 'Overspeed', icon: 'ph ph-gauge' },
-  { key: 'stoppage', label: 'Stoppage', icon: 'ph ph-stop-circle' },
-  { key: 'trip-summary', label: 'Trip Summary', icon: 'ph ph-map-trifold' },
   { key: 'general', label: 'General', icon: 'ph ph-chart-line-up' },
-  { key: 'ac', label: 'AC', icon: 'ph ph-snowflake' },
-  { key: 'fuel-filling', label: 'Fuel Filling', icon: 'ph ph-gas-can' },
+  { key: 'trip-summary', label: 'Trip summary', icon: 'ph ph-map-trifold' },
+  { key: 'stoppage', label: 'Stoppage', icon: 'ph ph-stop-circle' },
   { key: 'idle', label: 'Idle', icon: 'ph ph-timer' },
+  { key: 'overspeed', label: 'Overspeed', icon: 'ph ph-gauge' },
+  { key: 'ac', label: 'Aircon', icon: 'ph ph-snowflake' },
+  { key: 'fuel-filling', label: 'Fuel Filling', icon: 'ph ph-gas-can' },
+  { key: 'fuel-theft', label: 'Fuel Theft', icon: 'ph ph-drop' },
+  { key: 'events', label: 'Alert', icon: 'ph ph-warning' },
 ];
 
-const reportMenuItems = [
-  { key: 'overspeed', label: 'Overspeed', icon: 'ph-fill ph-gauge' },
-  { key: 'events', label: 'Alert Report', icon: 'ph-fill ph-warning' },
+const reportMenuItems: Array<{ key: string; label: string; icon: string; badge?: string }> = [
+  { key: 'general', label: 'General', icon: 'ph-fill ph-list' },
+  { key: 'trip-summary', label: 'Trip summary', icon: 'ph-fill ph-car' },
   { key: 'stoppage', label: 'Stoppage', icon: 'ph-fill ph-arrows-out-cardinal' },
-  { key: 'trip-summary', label: 'Trip Summary', icon: 'ph-fill ph-car' },
+  { key: 'idle', label: 'Idle', icon: 'ph-fill ph-list' },
+  { key: 'overspeed', label: 'Overspeed', icon: 'ph-fill ph-gauge' },
+  { key: 'ac', label: 'Aircon', icon: 'ph-fill ph-snowflake' },
   { key: 'fuel', label: 'Fuel Report', icon: 'ph-fill ph-chart-line-up' },
-  { key: 'general', label: 'General Report', icon: 'ph-fill ph-list' },
-  { key: 'ac', label: 'AC Report', icon: 'ph-fill ph-snowflake' },
   { key: 'fuel-filling', label: 'Fuel Filling', icon: 'ph-fill ph-drop' },
-  { key: 'idle', label: 'Idle Report', icon: 'ph-fill ph-list' },
+  { key: 'fuel-theft', label: 'Fuel Theft', icon: 'ph-fill ph-warning-octagon' },
+  { key: 'events', label: 'Alert', icon: 'ph-fill ph-warning' },
 ];
 
 const headerDateFilterReports = new Set([
@@ -112,6 +115,7 @@ const headerDateFilterReports = new Set([
   'general',
   'ac',
   'fuel-filling',
+  'fuel-theft',
   'idle',
 ]);
 
@@ -146,6 +150,7 @@ function severityIconBg(severity: string) {
 }
 
 function getCanonicalVehicle(id: string) {
+  const vehicles = listFleetVehicles();
   return vehicles.find((vehicle) => vehicle.id === id);
 }
 
@@ -182,6 +187,8 @@ function getReportVehicleIds(reportKey: string, dateRange: string, customStart: 
       return new Set(acRecords.filter(matchesDate).map((record) => record.vehicleId));
     case 'fuel-filling':
       return new Set(fuelFillingRecords.filter(matchesDate).map((record) => record.vehicleId));
+    case 'fuel-theft':
+      return new Set(listFleetVehicles().map((vehicle) => vehicle.id));
     case 'idle':
       return new Set(idleRecords.filter(matchesDate).map((record) => record.vehicleId));
     default:
@@ -217,6 +224,7 @@ function formatAlertEventTime(createdAt: string) {
 }
 
 function alertNotificationToEventReport(alert: AlertNotification) {
+  const vehicles = listFleetVehicles();
   const knownVehicle = vehicles.find((vehicle) => vehicle.name === alert.vehicle || vehicle.plateNumber === alert.vehicle);
   return {
     id: alert.id,
@@ -235,6 +243,7 @@ function alertNotificationToEventReport(alert: AlertNotification) {
 
 export default function Reports() {
   const [searchParams] = useSearchParams();
+  const fleetVehicles = useFleetVehicles();
   const requestedReport = searchParams.get('report');
   const [activeTab, setActiveTab] = useState(() => requestedReport || 'report-menu');
   const [searchQuery, setSearchQuery] = useState('');
@@ -255,6 +264,10 @@ export default function Reports() {
     if (requestedReport) setActiveTab(requestedReport);
   }, [requestedReport]);
 
+  useEffect(() => {
+    return scheduleScrollAppToTop();
+  }, [activeTab]);
+
   const openReport = (reportKey: string) => {
     setSelectedVehicle('all');
     setActiveTab(reportKey);
@@ -265,8 +278,8 @@ export default function Reports() {
     [activeTab, customEnd, customStart, dateRange],
   );
   const reportVehicles = useMemo(() => (
-    vehicles.filter((vehicle) => reportVehicleIds.has(vehicle.id))
-  ), [reportVehicleIds]);
+    fleetVehicles.filter((vehicle) => reportVehicleIds.has(vehicle.id))
+  ), [fleetVehicles, reportVehicleIds]);
   const eventTypes = useMemo(() => {
     const types = new Set(alertHistory.map((e) => e.title));
     return Array.from(types);
@@ -330,12 +343,23 @@ export default function Reports() {
   }, [selectedVehicle]);
 
   const filteredDrivers = useMemo(() => {
-    return selectedVehicle === 'all' ? driverReports : driverReports.filter((d) => {
+    const items = selectedVehicle === 'all' ? driverReports : driverReports.filter((d) => {
       const vehicle = getCanonicalVehicle(selectedVehicle);
       const reportVehicle = vehicleReports.find((vr) => vr.id === selectedVehicle);
       return vehicle ? d.vehicle === vehicle.name || d.vehicle === reportVehicle?.name : false;
     });
-  }, [selectedVehicle]);
+    return items.map((report) => {
+      const fleetVehicle = fleetVehicles.find((vehicle) => vehicle.name === report.vehicle);
+      return fleetVehicle
+        ? {
+            ...report,
+            name: fleetVehicle.driver,
+            vehicle: fleetVehicle.name,
+            status: fleetVehicle.status,
+          }
+        : report;
+    });
+  }, [fleetVehicles, selectedVehicle]);
 
   const filteredCost = useMemo(() => {
     const items = selectedVehicle === 'all' ? costReports : costReports.filter((c) => c.id === selectedVehicle);
@@ -372,6 +396,33 @@ export default function Reports() {
       return vehicle ? { ...event, vehicle: vehicle.name } : event;
     });
   }, [alertHistory, selectedVehicle, eventTypeFilter, dateRange, customStart, customEnd]);
+
+  const filteredFuelTheft = useMemo(() => {
+    let items = eventReports.filter((event) => event.type === 'Fuel Theft');
+    items = selectedVehicle === 'all'
+      ? items
+      : items.filter((event) => {
+          const vehicle = getCanonicalVehicle(selectedVehicle);
+          const reportVehicle = vehicleReports.find((vr) => vr.id === selectedVehicle);
+          return vehicle ? event.vehicle === vehicle.name || event.vehicle === reportVehicle?.name : false;
+        });
+
+    return items.map((event) => {
+      const vehicle = getCanonicalVehicleByReportName(event.vehicle);
+      return vehicle
+        ? {
+            ...event,
+            vehicle: vehicle.name,
+            driver: vehicle.driver,
+            plate: vehicle.plateNumber,
+          }
+        : {
+            ...event,
+            driver: 'Unassigned',
+            plate: 'NA',
+          };
+    });
+  }, [selectedVehicle]);
 
   const handleDateRangeChange = (key: string) => {
     setDateRange(key);
@@ -467,6 +518,10 @@ export default function Reports() {
         rows = data.map((r) => [r.vehicle, r.plate, r.date, r.time, r.station, String(r.quantity), String(r.cost), String(r.pricePerLiter), String(r.odometerReading), r.fuelType]);
         break;
       }
+      case 'fuel-theft':
+        headers = ['Vehicle', 'Plate', 'Driver', 'Severity', 'Description', 'Location', 'Time'];
+        rows = filteredFuelTheft.map((event) => [event.vehicle, event.plate, event.driver, event.severity, event.description, event.location, event.time]);
+        break;
       case 'idle': {
         const data = filterNewReportData(idleRecords);
         headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Fuel Wasted (L)', 'AC Running'];
@@ -479,7 +534,7 @@ export default function Reports() {
 
     if (rows.length === 0) return;
     downloadCSV(filename, headers, rows);
-  }, [activeTab, filteredVehicles, filteredFuel, filteredDrivers, expenseItems, filteredEvents, filterNewReportData]);
+  }, [activeTab, filteredVehicles, filteredFuel, filteredDrivers, expenseItems, filteredEvents, filteredFuelTheft, filterNewReportData]);
 
   const handleExportPDF = useCallback(() => {
     const tab = tabs.find((t) => t.key === activeTab);
@@ -545,6 +600,10 @@ export default function Reports() {
         rows = data.map((r) => [r.vehicle, r.plate, r.date, r.time, r.station, String(r.quantity), String(r.cost), String(r.pricePerLiter), String(r.odometerReading), r.fuelType]);
         break;
       }
+      case 'fuel-theft':
+        headers = ['Vehicle', 'Plate', 'Driver', 'Severity', 'Description', 'Location', 'Time'];
+        rows = filteredFuelTheft.map((event) => [event.vehicle, event.plate, event.driver, event.severity, event.description, event.location, event.time]);
+        break;
       case 'idle': {
         const data = filterNewReportData(idleRecords);
         headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Fuel Wasted (L)', 'AC Running'];
@@ -557,7 +616,7 @@ export default function Reports() {
 
     if (rows.length === 0) return;
     printTableAsPDF(`${tabLabel} Report`, headers, rows);
-  }, [activeTab, filteredVehicles, filteredFuel, filteredDrivers, expenseItems, filteredEvents, filterNewReportData]);
+  }, [activeTab, filteredVehicles, filteredFuel, filteredDrivers, expenseItems, filteredEvents, filteredFuelTheft, filterNewReportData]);
 
   return (
     <div className="min-h-full pb-28 bg-[#f7f8fa] dark:bg-slate-950 transition-colors">
@@ -724,7 +783,7 @@ export default function Reports() {
             <div className="space-y-3">
               {filteredVehicles.map((v) => (
                 (() => {
-                  const fleetVehicle = vehicles.find((vehicle) => vehicle.id === v.id);
+                  const fleetVehicle = fleetVehicles.find((vehicle) => vehicle.id === v.id);
                   return (
                 <div
                   key={v.id}
@@ -1109,6 +1168,61 @@ export default function Reports() {
           customStart={customStart}
           customEnd={customEnd}
         />
+      )}
+
+      {/* Fuel Theft Report */}
+      {activeTab === 'fuel-theft' && (
+        <div className="px-3 mt-3 space-y-3 sm:px-5">
+          {filteredFuelTheft.map((evt) => (
+            <div key={evt.id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-700 shadow-[0_4px_20px_rgba(0,0,0,0.07)] dark:shadow-none hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300">
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 flex items-center justify-center rounded-xl flex-shrink-0 shadow-sm ${severityIconBg(evt.severity)}`}>
+                  <i className="ph ph-drop text-sm text-red-500 dark:text-red-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-caption font-semibold text-slate-800 dark:text-slate-100">Fuel Theft</p>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-lg ${severityBadge(evt.severity)}`}>{evt.severity}</span>
+                  </div>
+                  <div className="mt-1 grid grid-cols-3 gap-1.5 text-[9.5px] font-semibold text-slate-500 dark:text-slate-400">
+                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
+                      <i className="ph ph-car mr-1 text-slate-400" />
+                      {evt.vehicle}
+                    </span>
+                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
+                      <i className="ph ph-user mr-1 text-slate-400" />
+                      {evt.driver}
+                    </span>
+                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
+                      <i className="ph ph-clock mr-1 text-slate-400" />
+                      {evt.time}
+                    </span>
+                  </div>
+                  <p className="text-caption-sm text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{evt.description}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 flex items-center gap-1">
+                    <i className="ph ph-map-pin text-slate-300 dark:text-slate-500" />
+                    {evt.location}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setGenericMap({ lat: evt.lat, lng: evt.lng, label: `${evt.vehicle} · Fuel Theft · ${evt.location}` })}
+                  className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0 w-12 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/40 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 hover:shadow-md transition-all duration-200 active:scale-95"
+                >
+                  <i className="ph ph-map-pin-area text-base" />
+                  <span className="text-[10px] font-semibold">view</span>
+                </button>
+              </div>
+            </div>
+          ))}
+          {filteredFuelTheft.length === 0 && (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 flex items-center justify-center rounded-2xl bg-white dark:bg-slate-800 mx-auto mb-3 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-200/60 dark:border-slate-700">
+                <i className="ph ph-drop text-2xl text-slate-300 dark:text-slate-600" />
+              </div>
+              <p className="text-body text-slate-400 dark:text-slate-500">No fuel theft events for this selection</p>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Idle Report */}

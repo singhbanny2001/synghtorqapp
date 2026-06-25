@@ -1,8 +1,10 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import { vehicles } from '@/mocks/fleetData';
+import type { Vehicle } from '@/mocks/fleetData';
 import { vehicleDetailData, type VehicleDetailData } from '@/mocks/vehicleDetailData';
 import { driverReports } from '@/mocks/reportsData';
+import { useFleetVehicles } from '@/mocks/fleetStore';
+import { useDrivers, type DriverRecord } from '@/mocks/driversStore';
 import HeaderSection from './components/HeaderSection';
 import MapSection from './components/MapSection';
 import MapSummaryPanel from './components/MapSummaryPanel';
@@ -21,16 +23,13 @@ const vehicleCoordinates: Record<string, { lat: number; lng: number }> = {
   v6: { lat: 40.5187, lng: -74.6329 },
 };
 
-const driverPhoneByName: Record<string, string> = {
-  'Marcus Johnson': '+1 (609) 555-0141',
-  'Sarah Chen': '+1 (609) 555-0142',
-  'David Park': '+1 (609) 555-0143',
-  'Robert Miller': '+1 (609) 555-0144',
-  'Lisa Wang': '+1 (609) 555-0145',
-  'James Wilson': '+1 (609) 555-0146',
-};
+function resolveAssignedDriver(vehicle: Vehicle, drivers: DriverRecord[]) {
+  return drivers.find((driver) => (
+    driver.status === 'Active' && driver.assignedVehicleIds.includes(vehicle.id)
+  )) ?? drivers.find((driver) => driver.assignedVehicleIds.includes(vehicle.id));
+}
 
-function buildVehicleDetailData(vehicleId?: string): VehicleDetailData {
+function buildVehicleDetailData(vehicles: Vehicle[], drivers: DriverRecord[], vehicleId?: string): VehicleDetailData {
   const vehicle = vehicles.find((item) => item.id === vehicleId) ?? vehicles[0];
   const coordinates = vehicleCoordinates[vehicle.id] ?? {
     lat: vehicleDetailData.lat,
@@ -39,6 +38,8 @@ function buildVehicleDetailData(vehicleId?: string): VehicleDetailData {
   const fuelCapacity = vehicle.fuelCapacityLiters;
   const fuelLevel = Math.round((vehicle.fuelLevel / 100) * fuelCapacity);
   const driverReport = driverReports.find((driver) => driver.name === vehicle.driver);
+  const assignedDriver = resolveAssignedDriver(vehicle, drivers);
+  const isAssigned = Boolean(assignedDriver);
 
   return {
     ...vehicleDetailData,
@@ -70,11 +71,13 @@ function buildVehicleDetailData(vehicleId?: string): VehicleDetailData {
     year: vehicle.year,
     batteryVoltage: vehicle.batteryVoltage,
     hasDashcam: vehicle.hasDashcam,
-    driverName: vehicle.driver,
-    driverId: vehicle.plateNumber,
-    driverPhoto: driverReport?.avatar ?? vehicleDetailData.driverPhoto,
-    driverPhone: driverPhoneByName[vehicle.driver] ?? vehicleDetailData.driverPhone,
+    driverName: assignedDriver?.name ?? 'Unassigned',
+    driverId: assignedDriver?.employeeId || 'No driver assigned',
+    driverPhoto: isAssigned ? (driverReport?.avatar ?? vehicleDetailData.driverPhoto) : '',
+    driverPhone: assignedDriver?.contactNumber ?? '',
+    driverMobileNumber: assignedDriver?.mobileNumber ?? '',
     trackerId: `TRK-${vehicle.id.toUpperCase()}`,
+    vehicleType: vehicle.vehicleType,
     vehicleImage: vehicle.image,
     alerts: vehicle.alerts > 0
       ? vehicleDetailData.alerts
@@ -85,10 +88,12 @@ function buildVehicleDetailData(vehicleId?: string): VehicleDetailData {
 export default function VehicleDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const vehicles = useFleetVehicles();
+  const drivers = useDrivers();
   const [searchParams] = useSearchParams();
   const shouldOpenCam = searchParams.get('cam') === '1';
   const [showDashcam, setShowDashcam] = useState(shouldOpenCam);
-  const data = useMemo(() => buildVehicleDetailData(id), [id]);
+  const data = useMemo(() => buildVehicleDetailData(vehicles, drivers, id), [vehicles, drivers, id]);
 
   const openFuelRefillManagement = () => {
     navigate(`/expenses?type=refill&vehicle=${data.id}&returnTo=${encodeURIComponent('/vehicles')}`, {

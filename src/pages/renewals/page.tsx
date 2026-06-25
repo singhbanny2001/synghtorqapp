@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { renewalsData as initialRenewalsData, renewalStats } from '@/mocks/renewalsData';
-import { vehicles } from '@/mocks/fleetData';
 import type { RenewalItem } from '@/mocks/renewalsData';
+import { useFleetVehicles } from '@/mocks/fleetStore';
 
 const typeFilters = ['All', 'Insurance', 'Registration', 'Emission', 'Permit', 'Franchise', 'Inspection'];
 
@@ -72,6 +72,7 @@ function statusLabel(status: string) {
 }
 
 export default function Renewals() {
+  const vehicles = useFleetVehicles();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState('all');

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { vehicles } from '@/mocks/fleetData';
 import type { Vehicle } from '@/mocks/fleetData';
 import { categoryLabels } from '@/mocks/deviceIcons';
 import type { VehicleIconVariant } from '@/mocks/deviceIcons';
 import EditDeviceModal from './EditDeviceModal';
 import { getVehicleRuntimeStatus } from '@/utils/vehicleStatus';
 import { getVehicleColorClass } from '@/utils/vehicleIconColor';
+import DeviceAssetIcon, { hasDeviceAssetIcon } from '@/components/feature/DeviceAssetIcon';
+import { updateFleetVehicle, useFleetVehicles } from '@/mocks/fleetStore';
 
 function getCategory(variant: VehicleIconVariant): 'personal' | 'two-wheeler' | 'car' | 'commercial' | 'heavy' {
   if (['person_tracker', 'baby_tracker', 'pet_tracker', 'asset_tracker'].includes(variant)) return 'personal';
@@ -17,10 +18,10 @@ function getCategory(variant: VehicleIconVariant): 'personal' | 'two-wheeler' | 
 
 export default function DevicesSection() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
-  const [deviceList, setDeviceList] = useState(vehicles);
+  const deviceList = useFleetVehicles();
 
   const handleSave = (updated: Vehicle) => {
-    setDeviceList((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+    updateFleetVehicle(updated);
     setEditingVehicle(null);
   };
 
@@ -62,8 +63,16 @@ export default function DevicesSection() {
                     key={vehicle.id}
                     className="card-surface rounded-xl p-3 border border-surface-border flex items-center gap-3"
                   >
-                    <div className="device-list-vehicle-icon" aria-hidden="true">
-                      <span className={`vehicles-reference-icon ${getVehicleColorClass(vehicle, getVehicleRuntimeStatus(vehicle))}`} />
+                    <div className="device-list-vehicle-icon flex h-20 w-20 items-center justify-center" aria-hidden="true">
+                      {hasDeviceAssetIcon(vehicle.vehicleType) ? (
+                        <DeviceAssetIcon
+                          variant={vehicle.vehicleType}
+                          size="md"
+                          status={getVehicleRuntimeStatus(vehicle)}
+                        />
+                      ) : (
+                        <span className={`vehicles-reference-icon ${getVehicleColorClass(vehicle, getVehicleRuntimeStatus(vehicle))}`} />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-body font-semibold text-text-primary">{vehicle.name}</h4>

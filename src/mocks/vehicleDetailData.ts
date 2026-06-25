@@ -1,3 +1,5 @@
+import type { VehicleIconVariant } from './deviceIcons';
+
 export interface AlertItem {
   id: string;
   severity: 'critical' | 'warning' | 'notice';
@@ -92,6 +94,7 @@ export interface VehicleDetailData {
   driverId: string;
   driverPhoto: string;
   driverPhone: string;
+  driverMobileNumber: string;
   safetyScore: number;
   fuelEfficiencyScore: number;
   drivingScore: number;
@@ -120,6 +123,7 @@ export interface VehicleDetailData {
   chassisNumber: string;
   odometer: number;
   trackerId: string;
+  vehicleType: VehicleIconVariant;
   simNumber: string;
   installationDate: string;
   lastCalibrationDate: string;
@@ -179,6 +183,7 @@ export const vehicleDetailData: VehicleDetailData = {
   driverId: 'DRV-2024-008',
   driverPhoto: 'https://readdy.ai/api/search-image?query=Professional%20female%20Asian%20logistics%20driver%20headshot%20portrait%2C%20clean%20neutral%20gray%20background%2C%20wearing%20navy%20blue%20polo%20shirt%2C%20friendly%20confident%20expression%2C%20professional%20corporate%20photography%20style%2C%20soft%20studio%20lighting&width=256&height=256&seq=drv1&orientation=squarish',
   driverPhone: '+1 (609) 555-0142',
+  driverMobileNumber: '+1 (609) 555-1182',
   safetyScore: 92,
   fuelEfficiencyScore: 88,
   drivingScore: 90,
@@ -222,6 +227,7 @@ export const vehicleDetailData: VehicleDetailData = {
   chassisNumber: 'CHS-2022-FT-99234',
   odometer: 12340,
   trackerId: 'TRK-2024-002-A',
+  vehicleType: 'van',
   simNumber: '8901410321111851072',
   installationDate: '2024-01-15',
   lastCalibrationDate: '2026-03-10',

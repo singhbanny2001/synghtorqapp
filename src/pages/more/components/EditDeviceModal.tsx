@@ -3,6 +3,7 @@ import type { Vehicle } from '@/mocks/fleetData';
 import type { VehicleIconVariant } from '@/mocks/deviceIcons';
 import { getIconsByCategory, categoryLabels } from '@/mocks/deviceIcons';
 import VehicleTopIcon from '@/components/feature/VehicleTopIcon';
+import DeviceAssetIcon, { hasDeviceAssetIcon } from '@/components/feature/DeviceAssetIcon';
 import { getVariantIconColor } from '@/utils/vehicleIconColor';
 
 interface EditDeviceModalProps {
@@ -69,12 +70,16 @@ export default function EditDeviceModal({ vehicle, onSave, onClose }: EditDevice
           {/* Preview */}
           <div className="flex items-center justify-center">
             <div className="flex flex-col items-center gap-1.5">
-              <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-surface-border bg-surface-dark">
-                <VehicleTopIcon
-                  variant={selectedIcon}
-                  size="lg"
-                  color={getVariantIconColor(selectedIcon)}
-                />
+              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-surface-border bg-surface-dark">
+                {hasDeviceAssetIcon(selectedIcon) ? (
+                  <DeviceAssetIcon variant={selectedIcon} size="lg" />
+                ) : (
+                  <VehicleTopIcon
+                    variant={selectedIcon}
+                    size="lg"
+                    color={getVariantIconColor(selectedIcon)}
+                  />
+                )}
               </div>
               <span className="text-[10px] font-medium text-text-tertiary">Live Preview</span>
             </div>
@@ -154,11 +159,18 @@ export default function EditDeviceModal({ vehicle, onSave, onClose }: EditDevice
                   >
                     <span className={`flex w-full items-center justify-center overflow-hidden ${isPersonal ? 'h-[56px]' : 'h-[68px]'}`}>
                       <span className={isHeavy ? 'scale-[0.84]' : isPersonal ? 'scale-100' : 'scale-90'}>
-                        <VehicleTopIcon
-                          variant={option.id}
-                          size={isHeavy ? 'md' : isPersonal ? 'md' : 'sm'}
-                          color={getVariantIconColor(option.id)}
-                        />
+                        {hasDeviceAssetIcon(option.id) ? (
+                          <DeviceAssetIcon
+                            variant={option.id}
+                            size={isHeavy ? 'md' : isPersonal ? 'md' : 'sm'}
+                          />
+                        ) : (
+                          <VehicleTopIcon
+                            variant={option.id}
+                            size={isHeavy ? 'md' : isPersonal ? 'md' : 'sm'}
+                            color={getVariantIconColor(option.id)}
+                          />
+                        )}
                       </span>
                     </span>
                     <span className={`flex min-h-[22px] w-full items-center justify-center text-center text-[9.5px] font-bold leading-[11px] ${isSelected ? 'text-primary' : 'text-text-secondary'}`}>

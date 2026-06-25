@@ -20,6 +20,7 @@ const Expenses = lazy(() => import("../pages/expenses/page"));
 const Account = lazy(() => import("../pages/account/page"));
 const TeamManagement = lazy(() => import("../pages/team/page"));
 const Devices = lazy(() => import("../pages/devices/page"));
+const Drivers = lazy(() => import("../pages/drivers/page"));
 const Security = lazy(() => import("../pages/security/page"));
 
 const routes: RouteObject[] = [
@@ -90,6 +91,10 @@ const routes: RouteObject[] = [
   {
     path: "/devices",
     element: <Devices />,
+  },
+  {
+    path: "/drivers",
+    element: <Drivers />,
   },
   {
     path: "/security",

@@ -15,6 +15,7 @@ const RESET_SCROLL_PATHS = new Set([
   '/expenses',
   '/more',
   '/devices',
+  '/drivers',
   '/team',
   '/alerts',
 ]);
