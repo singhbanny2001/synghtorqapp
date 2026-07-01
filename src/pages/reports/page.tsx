@@ -1,27 +1,62 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   vehicleReports, driverReports, fuelReports, costReports,
   eventReports,
   overspeedRecords, stoppageRecords, tripSummaryRecords,
   generalReportRecords, acRecords, fuelFillingRecords, idleRecords,
-} from '@/mocks/reportsData';
+  fleetSummaryStats,
+} from '@/utils/liveReports';
 import {
   ALERT_NOTIFICATIONS_STORAGE_KEY,
   listAlertNotifications,
   type AlertNotification,
 } from '@/mocks/alertData';
-import { listFleetVehicles, useFleetVehicles } from '@/mocks/fleetStore';
-import {
-  OverspeedReport, StoppageReport, TripSummaryReport,
-  GeneralReport, ACReport, FuelFillingReport, IdleReport,
-} from './components/ReportCards';
+import { useFleetVehicles } from '@/mocks/fleetStore';
+import type { Vehicle } from '@/mocks/fleetData';
+import type { FuelTheftEvent } from './components/FuelTheftReport';
 import ExportMenu from '@/components/feature/ExportMenu';
 import VehicleRender from '@/components/feature/VehicleRender';
 import { downloadCSV, printTableAsPDF } from '@/utils/exportUtils';
 import { scheduleScrollAppToTop } from '@/utils/scrollToTop';
 import { getVehicleIconColor } from '@/utils/vehicleIconColor';
 import InternalPageHeader from '@/components/InternalPageHeader';
+import { useLiveFleetSnapshot } from '@/utils/liveFleet';
+import { hasValidCoordinates } from '@/utils/locationDisplay';
+import { useResolvedLocationLabels } from '@/utils/useResolvedLocationLabels';
+
+const OverspeedReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.OverspeedReport };
+});
+const StoppageReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.StoppageReport };
+});
+const TripSummaryReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.TripSummaryReport };
+});
+const GeneralReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.GeneralReport };
+});
+const ACReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.ACReport };
+});
+const FuelFillingReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.FuelFillingReport };
+});
+const IdleReport = lazy(async () => {
+  const mod = await import('./components/ReportCards');
+  return { default: mod.IdleReport };
+});
+const FuelTheftReport = lazy(async () => {
+  const mod = await import('./components/FuelTheftReport');
+  return { default: mod.FuelTheftReport };
+});
 
 const dateRanges = [
   { key: 'today', label: 'Today' },
@@ -149,17 +184,16 @@ function severityIconBg(severity: string) {
   return map[severity] || 'bg-slate-100/80 dark:bg-slate-500/20 text-slate-500 dark:text-slate-400 ring-1 ring-slate-200/50 dark:ring-slate-500/30';
 }
 
-function getCanonicalVehicle(id: string) {
-  const vehicles = listFleetVehicles();
-  return vehicles.find((vehicle) => vehicle.id === id);
+function getCanonicalVehicle(id: string, vehiclesById: Map<string, Vehicle>) {
+  return vehiclesById.get(id);
 }
 
-function getCanonicalVehicleByReportName(name: string) {
+function getCanonicalVehicleByReportName(name: string, vehiclesById: Map<string, Vehicle>) {
   const reportVehicle = vehicleReports.find((vehicle) => vehicle.name === name);
-  return reportVehicle ? getCanonicalVehicle(reportVehicle.id) : undefined;
+  return reportVehicle ? getCanonicalVehicle(reportVehicle.id, vehiclesById) : undefined;
 }
 
-function getReportVehicleIds(reportKey: string, dateRange: string, customStart: string, customEnd: string) {
+function getReportVehicleIds(reportKey: string, dateRange: string, customStart: string, customEnd: string, vehiclesById: Map<string, Vehicle>) {
   const matchesDate = <T extends { date: string }>(record: T) => isDateInRange(record.date, dateRange, customStart, customEnd);
 
   switch (reportKey) {
@@ -173,7 +207,7 @@ function getReportVehicleIds(reportKey: string, dateRange: string, customStart: 
       return new Set(fuelFillingRecords.filter(matchesDate).map((record) => record.vehicleId));
     case 'events':
       return new Set(eventReports
-        .map((record) => getCanonicalVehicleByReportName(record.vehicle)?.id)
+        .map((record) => getCanonicalVehicleByReportName(record.vehicle, vehiclesById)?.id)
         .filter(Boolean));
     case 'overspeed':
       return new Set(overspeedRecords.filter(matchesDate).map((record) => record.vehicleId));
@@ -188,7 +222,7 @@ function getReportVehicleIds(reportKey: string, dateRange: string, customStart: 
     case 'fuel-filling':
       return new Set(fuelFillingRecords.filter(matchesDate).map((record) => record.vehicleId));
     case 'fuel-theft':
-      return new Set(listFleetVehicles().map((vehicle) => vehicle.id));
+      return new Set(vehiclesById.keys());
     case 'idle':
       return new Set(idleRecords.filter(matchesDate).map((record) => record.vehicleId));
     default:
@@ -196,14 +230,14 @@ function getReportVehicleIds(reportKey: string, dateRange: string, customStart: 
   }
 }
 
-function canonicalizeReportRecord<T extends { vehicleId: string; vehicle?: string; plate?: string; driver?: string }>(record: T): T {
-  const vehicle = getCanonicalVehicle(record.vehicleId);
+function canonicalizeReportRecord<T extends { vehicleId: string; vehicle?: string; plate?: string; driver?: string }>(record: T, vehiclesById: Map<string, Vehicle>): T {
+  const vehicle = getCanonicalVehicle(record.vehicleId, vehiclesById);
   return vehicle
     ? {
         ...record,
         vehicle: vehicle.name,
         plate: vehicle.plateNumber,
-        driver: record.driver ? vehicle.driver : record.driver,
+        driver: record.driver || vehicle.driver || 'Unassigned',
       }
     : record;
 }
@@ -223,9 +257,50 @@ function formatAlertEventTime(createdAt: string) {
   });
 }
 
-function alertNotificationToEventReport(alert: AlertNotification) {
-  const vehicles = listFleetVehicles();
+function getReportLocationInput(location: string, lat: number, lng: number) {
+  return {
+    locationText: location,
+    latitude: lat,
+    longitude: lng,
+  };
+}
+
+function getRecordLocationKey<T extends { id: string }>(record: T) {
+  return record.id;
+}
+
+function getEventLocationInput<T extends { location: string; lat: number; lng: number }>(record: T) {
+  return getReportLocationInput(record.location, record.lat, record.lng);
+}
+
+function getTripLocationKey<T extends { key: string }>(record: T) {
+  return record.key;
+}
+
+type ReportEvent = {
+  id: string;
+  vehicle: string;
+  driver: string;
+  type: string;
+  severity: 'critical' | 'warning' | 'notice';
+  description: string;
+  location: string;
+  time: string;
+  eventTime: string;
+  lat: number;
+  lng: number;
+  fromLevelLiters?: number;
+  toLevelLiters?: number;
+  startTime?: string;
+  endTime?: string;
+  totalTheftLiters?: number;
+};
+
+function alertNotificationToEventReport(alert: AlertNotification, vehicles: Vehicle[]): ReportEvent {
   const knownVehicle = vehicles.find((vehicle) => vehicle.name === alert.vehicle || vehicle.plateNumber === alert.vehicle);
+  const hasVehicleCoordinates = knownVehicle
+    ? hasValidCoordinates(knownVehicle.latitude, knownVehicle.longitude)
+    : false;
   return {
     id: alert.id,
     vehicle: knownVehicle?.name ?? alert.vehicle,
@@ -233,17 +308,25 @@ function alertNotificationToEventReport(alert: AlertNotification) {
     type: alert.title,
     severity: alertSeverityToEventSeverity(alert.severity),
     description: alert.description,
-    location: knownVehicle?.location ?? 'Latest known vehicle location',
+    location: knownVehicle?.location ?? 'Latest known unit location',
     time: alert.time,
     eventTime: formatAlertEventTime(alert.createdAt),
-    lat: 40.3573,
-    lng: -74.6672,
+    lat: hasVehicleCoordinates ? Number(knownVehicle?.latitude) : 40.3573,
+    lng: hasVehicleCoordinates ? Number(knownVehicle?.longitude) : -74.6672,
   };
 }
 
 export default function Reports() {
   const [searchParams] = useSearchParams();
   const fleetVehicles = useFleetVehicles();
+  const vehiclesById = useMemo(
+    () => new Map(fleetVehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [fleetVehicles],
+  );
+  const vehiclesByName = useMemo(
+    () => new Map(fleetVehicles.map((vehicle) => [vehicle.name, vehicle] as const)),
+    [fleetVehicles],
+  );
   const requestedReport = searchParams.get('report');
   const [activeTab, setActiveTab] = useState(() => requestedReport || 'report-menu');
   const [searchQuery, setSearchQuery] = useState('');
@@ -274,8 +357,8 @@ export default function Reports() {
   };
 
   const reportVehicleIds = useMemo(
-    () => getReportVehicleIds(activeTab, dateRange, customStart, customEnd),
-    [activeTab, customEnd, customStart, dateRange],
+    () => getReportVehicleIds(activeTab, dateRange, customStart, customEnd, vehiclesById),
+    [activeTab, customEnd, customStart, dateRange, vehiclesById],
   );
   const reportVehicles = useMemo(() => (
     fleetVehicles.filter((vehicle) => reportVehicleIds.has(vehicle.id))
@@ -286,7 +369,12 @@ export default function Reports() {
   }, [alertHistory]);
 
   useEffect(() => {
-    const refreshAlerts = async () => setAlertHistory(await listAlertNotifications());
+    const refreshAlerts = async () => {
+      const nextAlerts = await listAlertNotifications();
+      setAlertHistory((currentAlerts) => (
+        nextAlerts.length === 0 && currentAlerts.length > 0 ? currentAlerts : nextAlerts
+      ));
+    };
     void refreshAlerts();
 
     const handleStorage = (event: StorageEvent) => {
@@ -312,17 +400,17 @@ export default function Reports() {
   const filteredVehicles = useMemo(() => {
     let items = selectedVehicle === 'all' ? vehicleReports : vehicleReports.filter((v) => v.id === selectedVehicle);
     items = items.map((report) => {
-      const vehicle = getCanonicalVehicle(report.id);
+      const vehicle = getCanonicalVehicle(report.id, vehiclesById);
       return vehicle
         ? {
             ...report,
             name: vehicle.name,
             plate: vehicle.plateNumber,
-            driver: vehicle.driver,
+            driver: report.driver || vehicle.driver || 'Unassigned',
             status: vehicle.status === 'maintenance' ? report.status : vehicle.status,
             image: vehicle.image,
           }
-        : report;
+      : report;
     });
     if (!searchQuery) return items;
     const query = searchQuery.toLowerCase();
@@ -332,24 +420,24 @@ export default function Reports() {
         v.plate.toLowerCase().includes(query) ||
         v.driver.toLowerCase().includes(query),
     );
-  }, [searchQuery, selectedVehicle]);
+  }, [searchQuery, selectedVehicle, vehiclesById]);
 
   const filteredFuel = useMemo(() => {
     const items = selectedVehicle === 'all' ? fuelReports : fuelReports.filter((f) => f.id === selectedVehicle);
     return items.map((report) => {
-      const vehicle = getCanonicalVehicle(report.id);
+      const vehicle = getCanonicalVehicle(report.id, vehiclesById);
       return vehicle ? { ...report, name: vehicle.name, plate: vehicle.plateNumber, status: vehicle.status } : report;
     });
-  }, [selectedVehicle]);
+  }, [selectedVehicle, vehiclesById]);
 
   const filteredDrivers = useMemo(() => {
     const items = selectedVehicle === 'all' ? driverReports : driverReports.filter((d) => {
-      const vehicle = getCanonicalVehicle(selectedVehicle);
+      const vehicle = getCanonicalVehicle(selectedVehicle, vehiclesById);
       const reportVehicle = vehicleReports.find((vr) => vr.id === selectedVehicle);
       return vehicle ? d.vehicle === vehicle.name || d.vehicle === reportVehicle?.name : false;
     });
     return items.map((report) => {
-      const fleetVehicle = fleetVehicles.find((vehicle) => vehicle.name === report.vehicle);
+      const fleetVehicle = vehiclesByName.get(report.vehicle);
       return fleetVehicle
         ? {
             ...report,
@@ -359,15 +447,15 @@ export default function Reports() {
           }
         : report;
     });
-  }, [fleetVehicles, selectedVehicle]);
+  }, [selectedVehicle, vehiclesByName, vehiclesById]);
 
   const filteredCost = useMemo(() => {
     const items = selectedVehicle === 'all' ? costReports : costReports.filter((c) => c.id === selectedVehicle);
     return items.map((report) => {
-      const vehicle = getCanonicalVehicle(report.id);
+      const vehicle = getCanonicalVehicle(report.id, vehiclesById);
       return vehicle ? { ...report, name: vehicle.name, plate: vehicle.plateNumber } : report;
     });
-  }, [selectedVehicle]);
+  }, [selectedVehicle, vehiclesById]);
 
   const expenseItems = useMemo(() => {
     return filteredCost.flatMap((c) => [
@@ -382,9 +470,9 @@ export default function Reports() {
   const filteredEvents = useMemo(() => {
     const alertEvents = alertHistory
       .filter((alert) => isDateInRange(alert.createdAt, dateRange, customStart, customEnd))
-      .map(alertNotificationToEventReport);
+      .map((alert) => alertNotificationToEventReport(alert, fleetVehicles));
     let items = selectedVehicle === 'all' ? alertEvents : alertEvents.filter((e) => {
-      const vehicle = getCanonicalVehicle(selectedVehicle);
+      const vehicle = getCanonicalVehicle(selectedVehicle, vehiclesById);
       const reportVehicle = vehicleReports.find((vr) => vr.id === selectedVehicle);
       return vehicle ? e.vehicle === vehicle.name || e.vehicle === reportVehicle?.name : false;
     });
@@ -392,28 +480,33 @@ export default function Reports() {
       items = items.filter((e) => e.type === eventTypeFilter);
     }
     return items.map((event) => {
-      const vehicle = getCanonicalVehicleByReportName(event.vehicle);
+      const vehicle = getCanonicalVehicleByReportName(event.vehicle, vehiclesById);
       return vehicle ? { ...event, vehicle: vehicle.name } : event;
     });
-  }, [alertHistory, selectedVehicle, eventTypeFilter, dateRange, customStart, customEnd]);
+  }, [alertHistory, selectedVehicle, eventTypeFilter, dateRange, customStart, customEnd, fleetVehicles, vehiclesById]);
+  const filteredEventLocationLabels = useResolvedLocationLabels(filteredEvents, {
+    getKey: getRecordLocationKey,
+    getInput: getEventLocationInput,
+    fallback: 'Location unavailable',
+  });
 
   const filteredFuelTheft = useMemo(() => {
     let items = eventReports.filter((event) => event.type === 'Fuel Theft');
     items = selectedVehicle === 'all'
       ? items
       : items.filter((event) => {
-          const vehicle = getCanonicalVehicle(selectedVehicle);
+          const vehicle = getCanonicalVehicle(selectedVehicle, vehiclesById);
           const reportVehicle = vehicleReports.find((vr) => vr.id === selectedVehicle);
           return vehicle ? event.vehicle === vehicle.name || event.vehicle === reportVehicle?.name : false;
         });
 
     return items.map((event) => {
-      const vehicle = getCanonicalVehicleByReportName(event.vehicle);
+      const vehicle = getCanonicalVehicleByReportName(event.vehicle, vehiclesById);
       return vehicle
         ? {
             ...event,
             vehicle: vehicle.name,
-            driver: vehicle.driver,
+            driver: event.driver || vehicle.driver || 'Unassigned',
             plate: vehicle.plateNumber,
           }
         : {
@@ -422,7 +515,12 @@ export default function Reports() {
             plate: 'NA',
           };
     });
-  }, [selectedVehicle]);
+  }, [selectedVehicle, vehiclesById]);
+  const filteredFuelTheftLocationLabels = useResolvedLocationLabels(filteredFuelTheft, {
+    getKey: getRecordLocationKey,
+    getInput: getEventLocationInput,
+    fallback: 'Location unavailable',
+  });
 
   const handleDateRangeChange = (key: string) => {
     setDateRange(key);
@@ -449,8 +547,20 @@ export default function Reports() {
   const filterNewReportData = useCallback(<T extends { vehicleId: string; date: string; vehicle?: string; plate?: string; driver?: string }>(records: T[]) => {
     let items = selectedVehicle === 'all' ? records : records.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeReportRecord);
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeReportRecord(record, vehiclesById));
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
+  const filteredTripSummaries = useMemo(() => filterNewReportData(tripSummaryRecords), [filterNewReportData]);
+  const tripSummaryLocationItems = useMemo(() => (
+    filteredTripSummaries.flatMap((record) => ([
+      { key: `${record.id}-start`, locationText: record.startLocation },
+      { key: `${record.id}-end`, locationText: record.endLocation },
+    ]))
+  ), [filteredTripSummaries]);
+  const tripSummaryLocationLabels = useResolvedLocationLabels(tripSummaryLocationItems, {
+    getKey: getTripLocationKey,
+    getInput: (item) => ({ locationText: item.locationText }),
+    fallback: 'Location unavailable',
+  });
 
   const handleExportCSV = useCallback(() => {
     const tab = tabs.find((t) => t.key === activeTab);
@@ -463,68 +573,81 @@ export default function Reports() {
 
     switch (activeTab) {
       case 'fleet':
-        headers = ['Vehicle', 'Plate', 'Driver', 'Status', 'Distance (km)', 'Trips', 'Fuel Cost/km', 'Maint Cost/km', 'Renewal Cost/km', 'Total Cost/km'];
+        headers = ['Unit', 'Plate', 'Driver', 'Status', 'Distance (km)', 'Trips', 'Fuel Cost/km', 'Maint Cost/km', 'Renewal Cost/km', 'Total Cost/km'];
         rows = filteredVehicles.map((v) => [v.name, v.plate, v.driver, v.status, String(v.distance), String(v.trips), String(v.fuelCostPerKm), String(v.maintenanceCostPerKm), String(v.renewalCostPerKm), String(v.totalCostPerKm)]);
         break;
       case 'fuel':
-        headers = ['Vehicle', 'Plate', 'Status', 'Fuel Consumed (L)', 'Efficiency (km/L)', 'Theft Alerts', 'Refills'];
+        headers = ['Unit', 'Plate', 'Status', 'Fuel Consumed (L)', 'Efficiency (km/L)', 'Theft Alerts', 'Refills'];
         rows = filteredFuel.map((f) => [f.name, f.plate, f.status, String(f.fuelConsumed), String(f.efficiency), String(f.theftAlerts), String(f.refills)]);
         break;
       case 'driver':
-        headers = ['Driver', 'Vehicle', 'Status', 'Trips', 'Distance (km)', 'Drive Time', 'Safety Score', 'Overspeed', 'Harsh Braking', 'Fuel Efficiency'];
+        headers = ['Driver', 'Unit', 'Status', 'Trips', 'Distance (km)', 'Drive Time', 'Safety Score', 'Overspeed', 'Harsh Braking', 'Fuel Efficiency'];
         rows = filteredDrivers.map((d) => [d.name, d.vehicle, d.status, String(d.trips), String(d.distance), d.driveTime, String(d.safetyScore), String(d.overspeedCount), String(d.harshBraking), String(d.fuelEfficiency)]);
         break;
       case 'cost':
-        headers = ['Vehicle', 'Category', 'Date', 'Amount (\u20B1)'];
+        headers = ['Unit', 'Category', 'Date', 'Amount (\u20B1)'];
         rows = expenseItems.map((e) => [e.vehicle, e.category, e.date, String(e.amount)]);
         break;
       case 'events':
-        headers = ['Vehicle', 'Type', 'Severity', 'Description', 'Location', 'Time'];
-        rows = filteredEvents.map((e) => [e.vehicle, e.type, e.severity, e.description, e.location, e.time]);
+        headers = ['Unit', 'Type', 'Severity', 'Description', 'Location', 'Time'];
+        rows = filteredEvents.map((e) => [e.vehicle, e.type, e.severity, e.description, filteredEventLocationLabels[e.id] ?? e.location, e.time]);
         break;
       case 'overspeed': {
         const data = filterNewReportData(overspeedRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Time', 'Location', 'Speed Recorded', 'Speed Limit', 'Over By', 'Duration', 'Severity'];
+        headers = ['Unit', 'Plate', 'Driver', 'Date', 'Time', 'Location', 'Speed Recorded', 'Speed Limit', 'Over By', 'Duration', 'Severity'];
         rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.date, r.time, r.location, String(r.speedRecorded), String(r.speedLimit), String(r.overBy), r.duration, r.severity]);
         break;
       }
       case 'stoppage': {
         const data = filterNewReportData(stoppageRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Reason'];
+        headers = ['Unit', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Reason'];
         rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.date, r.location, r.startTime, r.endTime, r.duration, r.reason]);
         break;
       }
       case 'trip-summary': {
-        const data = filterNewReportData(tripSummaryRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Trip ID', 'Date', 'Start Location', 'End Location', 'Distance (km)', 'Duration', 'Avg Speed', 'Max Speed', 'Stops', 'Fuel Used (L)'];
-        rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.tripId, r.date, r.startLocation, r.endLocation, String(r.distance), r.duration, String(r.avgSpeed), String(r.maxSpeed), String(r.stops), String(r.fuelUsed)]);
+        headers = ['Unit', 'Plate', 'Driver', 'Trip ID', 'Date', 'Start Location', 'End Location', 'Distance (km)', 'Duration', 'Avg Speed', 'Max Speed', 'Stops', 'Fuel Used (L)'];
+        rows = filteredTripSummaries.map((r) => [
+          r.vehicle,
+          r.plate,
+          r.driver,
+          r.tripId,
+          r.date,
+          tripSummaryLocationLabels[`${r.id}-start`] ?? r.startLocation,
+          tripSummaryLocationLabels[`${r.id}-end`] ?? r.endLocation,
+          String(r.distance),
+          r.duration,
+          String(r.avgSpeed),
+          String(r.maxSpeed),
+          String(r.stops),
+          String(r.fuelUsed),
+        ]);
         break;
       }
       case 'general': {
         const data = filterNewReportData(generalReportRecords);
-        headers = ['Vehicle', 'Plate', 'Date', 'Trips', 'Distance (km)', 'Fuel Used (L)', 'Efficiency', 'Drive Time', 'Idle Time', 'Overspeed', 'Harsh Braking', 'Harsh Accel', 'Safety Score'];
+        headers = ['Unit', 'Plate', 'Date', 'Trips', 'Distance (km)', 'Fuel Used (L)', 'Efficiency', 'Drive Time', 'Idle Time', 'Overspeed', 'Harsh Braking', 'Harsh Accel', 'Safety Score'];
         rows = data.map((r) => [r.vehicle, r.plate, r.date, String(r.totalTrips), String(r.totalDistance), String(r.totalFuelUsed), String(r.avgEfficiency), r.totalDriveTime, r.totalIdleTime, String(r.overspeedCount), String(r.harshBrakingCount), String(r.harshAccelerationCount), String(r.safetyScore)]);
         break;
       }
       case 'ac': {
         const data = filterNewReportData(acRecords);
-        headers = ['Vehicle', 'Plate', 'Date', 'AC Usage (h)', 'Avg Temp (\u00B0C)', 'Ambient Temp (\u00B0C)', 'Fuel Impact (L)', 'Efficiency Drop (%)'];
+        headers = ['Unit', 'Plate', 'Date', 'AC Usage (h)', 'Avg Temp (\u00B0C)', 'Ambient Temp (\u00B0C)', 'Fuel Impact (L)', 'Efficiency Drop (%)'];
         rows = data.map((r) => [r.vehicle, r.plate, r.date, String(r.acUsageHours), String(r.avgTemperature), String(r.ambientTemp), String(r.fuelImpactLiters), String(r.efficiencyDrop)]);
         break;
       }
       case 'fuel-filling': {
         const data = filterNewReportData(fuelFillingRecords);
-        headers = ['Vehicle', 'Plate', 'Date', 'Time', 'Station', 'Quantity (L)', 'Cost (\u20B1)', 'Price/L (\u20B1)', 'Odometer', 'Fuel Type'];
+        headers = ['Unit', 'Plate', 'Date', 'Time', 'Station', 'Quantity (L)', 'Cost (\u20B1)', 'Price/L (\u20B1)', 'Odometer', 'Fuel Type'];
         rows = data.map((r) => [r.vehicle, r.plate, r.date, r.time, r.station, String(r.quantity), String(r.cost), String(r.pricePerLiter), String(r.odometerReading), r.fuelType]);
         break;
       }
       case 'fuel-theft':
-        headers = ['Vehicle', 'Plate', 'Driver', 'Severity', 'Description', 'Location', 'Time'];
-        rows = filteredFuelTheft.map((event) => [event.vehicle, event.plate, event.driver, event.severity, event.description, event.location, event.time]);
+        headers = ['Unit', 'Plate', 'Driver', 'Severity', 'Description', 'Location', 'Time'];
+        rows = filteredFuelTheft.map((event) => [event.vehicle, event.plate, event.driver, event.severity, event.description, filteredFuelTheftLocationLabels[event.id] ?? event.location, event.time]);
         break;
       case 'idle': {
         const data = filterNewReportData(idleRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Fuel Wasted (L)', 'AC Running'];
+        headers = ['Unit', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Fuel Wasted (L)', 'AC Running'];
         rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.date, r.location, r.startTime, r.endTime, r.duration, String(r.fuelWasted), r.acRunning ? 'Yes' : 'No']);
         break;
       }
@@ -534,7 +657,20 @@ export default function Reports() {
 
     if (rows.length === 0) return;
     downloadCSV(filename, headers, rows);
-  }, [activeTab, filteredVehicles, filteredFuel, filteredDrivers, expenseItems, filteredEvents, filteredFuelTheft, filterNewReportData]);
+  }, [
+    activeTab,
+    filteredVehicles,
+    filteredFuel,
+    filteredDrivers,
+    expenseItems,
+    filteredEvents,
+    filteredEventLocationLabels,
+    filteredFuelTheft,
+    filteredFuelTheftLocationLabels,
+    filteredTripSummaries,
+    tripSummaryLocationLabels,
+    filterNewReportData,
+  ]);
 
   const handleExportPDF = useCallback(() => {
     const tab = tabs.find((t) => t.key === activeTab);
@@ -545,68 +681,81 @@ export default function Reports() {
 
     switch (activeTab) {
       case 'fleet':
-        headers = ['Vehicle', 'Plate', 'Driver', 'Status', 'Distance (km)', 'Trips', 'Fuel Cost/km', 'Maint Cost/km', 'Renewal Cost/km', 'Total Cost/km'];
+        headers = ['Unit', 'Plate', 'Driver', 'Status', 'Distance (km)', 'Trips', 'Fuel Cost/km', 'Maint Cost/km', 'Renewal Cost/km', 'Total Cost/km'];
         rows = filteredVehicles.map((v) => [v.name, v.plate, v.driver, v.status, String(v.distance), String(v.trips), String(v.fuelCostPerKm), String(v.maintenanceCostPerKm), String(v.renewalCostPerKm), String(v.totalCostPerKm)]);
         break;
       case 'fuel':
-        headers = ['Vehicle', 'Plate', 'Status', 'Fuel Consumed (L)', 'Efficiency (km/L)', 'Theft Alerts', 'Refills'];
+        headers = ['Unit', 'Plate', 'Status', 'Fuel Consumed (L)', 'Efficiency (km/L)', 'Theft Alerts', 'Refills'];
         rows = filteredFuel.map((f) => [f.name, f.plate, f.status, String(f.fuelConsumed), String(f.efficiency), String(f.theftAlerts), String(f.refills)]);
         break;
       case 'driver':
-        headers = ['Driver', 'Vehicle', 'Status', 'Trips', 'Distance (km)', 'Drive Time', 'Safety Score', 'Overspeed', 'Harsh Braking', 'Fuel Efficiency'];
+        headers = ['Driver', 'Unit', 'Status', 'Trips', 'Distance (km)', 'Drive Time', 'Safety Score', 'Overspeed', 'Harsh Braking', 'Fuel Efficiency'];
         rows = filteredDrivers.map((d) => [d.name, d.vehicle, d.status, String(d.trips), String(d.distance), d.driveTime, String(d.safetyScore), String(d.overspeedCount), String(d.harshBraking), String(d.fuelEfficiency)]);
         break;
       case 'cost':
-        headers = ['Vehicle', 'Category', 'Date', 'Amount (\u20B1)'];
+        headers = ['Unit', 'Category', 'Date', 'Amount (\u20B1)'];
         rows = expenseItems.map((e) => [e.vehicle, e.category, e.date, String(e.amount)]);
         break;
       case 'events':
-        headers = ['Vehicle', 'Type', 'Severity', 'Description', 'Location', 'Time'];
-        rows = filteredEvents.map((e) => [e.vehicle, e.type, e.severity, e.description, e.location, e.time]);
+        headers = ['Unit', 'Type', 'Severity', 'Description', 'Location', 'Time'];
+        rows = filteredEvents.map((e) => [e.vehicle, e.type, e.severity, e.description, filteredEventLocationLabels[e.id] ?? e.location, e.time]);
         break;
       case 'overspeed': {
         const data = filterNewReportData(overspeedRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Time', 'Location', 'Speed Recorded', 'Speed Limit', 'Over By', 'Duration', 'Severity'];
+        headers = ['Unit', 'Plate', 'Driver', 'Date', 'Time', 'Location', 'Speed Recorded', 'Speed Limit', 'Over By', 'Duration', 'Severity'];
         rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.date, r.time, r.location, String(r.speedRecorded), String(r.speedLimit), String(r.overBy), r.duration, r.severity]);
         break;
       }
       case 'stoppage': {
         const data = filterNewReportData(stoppageRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Reason'];
+        headers = ['Unit', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Reason'];
         rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.date, r.location, r.startTime, r.endTime, r.duration, r.reason]);
         break;
       }
       case 'trip-summary': {
-        const data = filterNewReportData(tripSummaryRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Trip ID', 'Date', 'Start Location', 'End Location', 'Distance (km)', 'Duration', 'Avg Speed', 'Max Speed', 'Stops', 'Fuel Used (L)'];
-        rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.tripId, r.date, r.startLocation, r.endLocation, String(r.distance), r.duration, String(r.avgSpeed), String(r.maxSpeed), String(r.stops), String(r.fuelUsed)]);
+        headers = ['Unit', 'Plate', 'Driver', 'Trip ID', 'Date', 'Start Location', 'End Location', 'Distance (km)', 'Duration', 'Avg Speed', 'Max Speed', 'Stops', 'Fuel Used (L)'];
+        rows = filteredTripSummaries.map((r) => [
+          r.vehicle,
+          r.plate,
+          r.driver,
+          r.tripId,
+          r.date,
+          tripSummaryLocationLabels[`${r.id}-start`] ?? r.startLocation,
+          tripSummaryLocationLabels[`${r.id}-end`] ?? r.endLocation,
+          String(r.distance),
+          r.duration,
+          String(r.avgSpeed),
+          String(r.maxSpeed),
+          String(r.stops),
+          String(r.fuelUsed),
+        ]);
         break;
       }
       case 'general': {
         const data = filterNewReportData(generalReportRecords);
-        headers = ['Vehicle', 'Plate', 'Date', 'Trips', 'Distance (km)', 'Fuel Used (L)', 'Efficiency', 'Drive Time', 'Idle Time', 'Overspeed', 'Harsh Braking', 'Harsh Accel', 'Safety Score'];
+        headers = ['Unit', 'Plate', 'Date', 'Trips', 'Distance (km)', 'Fuel Used (L)', 'Efficiency', 'Drive Time', 'Idle Time', 'Overspeed', 'Harsh Braking', 'Harsh Accel', 'Safety Score'];
         rows = data.map((r) => [r.vehicle, r.plate, r.date, String(r.totalTrips), String(r.totalDistance), String(r.totalFuelUsed), String(r.avgEfficiency), r.totalDriveTime, r.totalIdleTime, String(r.overspeedCount), String(r.harshBrakingCount), String(r.harshAccelerationCount), String(r.safetyScore)]);
         break;
       }
       case 'ac': {
         const data = filterNewReportData(acRecords);
-        headers = ['Vehicle', 'Plate', 'Date', 'AC Usage (h)', 'Avg Temp (\u00B0C)', 'Ambient Temp (\u00B0C)', 'Fuel Impact (L)', 'Efficiency Drop (%)'];
+        headers = ['Unit', 'Plate', 'Date', 'AC Usage (h)', 'Avg Temp (\u00B0C)', 'Ambient Temp (\u00B0C)', 'Fuel Impact (L)', 'Efficiency Drop (%)'];
         rows = data.map((r) => [r.vehicle, r.plate, r.date, String(r.acUsageHours), String(r.avgTemperature), String(r.ambientTemp), String(r.fuelImpactLiters), String(r.efficiencyDrop)]);
         break;
       }
       case 'fuel-filling': {
         const data = filterNewReportData(fuelFillingRecords);
-        headers = ['Vehicle', 'Plate', 'Date', 'Time', 'Station', 'Quantity (L)', 'Cost (\u20B1)', 'Price/L (\u20B1)', 'Odometer', 'Fuel Type'];
+        headers = ['Unit', 'Plate', 'Date', 'Time', 'Station', 'Quantity (L)', 'Cost (\u20B1)', 'Price/L (\u20B1)', 'Odometer', 'Fuel Type'];
         rows = data.map((r) => [r.vehicle, r.plate, r.date, r.time, r.station, String(r.quantity), String(r.cost), String(r.pricePerLiter), String(r.odometerReading), r.fuelType]);
         break;
       }
       case 'fuel-theft':
-        headers = ['Vehicle', 'Plate', 'Driver', 'Severity', 'Description', 'Location', 'Time'];
-        rows = filteredFuelTheft.map((event) => [event.vehicle, event.plate, event.driver, event.severity, event.description, event.location, event.time]);
+        headers = ['Unit', 'Plate', 'Driver', 'Severity', 'Description', 'Location', 'Time'];
+        rows = filteredFuelTheft.map((event) => [event.vehicle, event.plate, event.driver, event.severity, event.description, filteredFuelTheftLocationLabels[event.id] ?? event.location, event.time]);
         break;
       case 'idle': {
         const data = filterNewReportData(idleRecords);
-        headers = ['Vehicle', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Fuel Wasted (L)', 'AC Running'];
+        headers = ['Unit', 'Plate', 'Driver', 'Date', 'Location', 'Start Time', 'End Time', 'Duration', 'Fuel Wasted (L)', 'AC Running'];
         rows = data.map((r) => [r.vehicle, r.plate, r.driver, r.date, r.location, r.startTime, r.endTime, r.duration, String(r.fuelWasted), r.acRunning ? 'Yes' : 'No']);
         break;
       }
@@ -616,10 +765,23 @@ export default function Reports() {
 
     if (rows.length === 0) return;
     printTableAsPDF(`${tabLabel} Report`, headers, rows);
-  }, [activeTab, filteredVehicles, filteredFuel, filteredDrivers, expenseItems, filteredEvents, filteredFuelTheft, filterNewReportData]);
+  }, [
+    activeTab,
+    filteredVehicles,
+    filteredFuel,
+    filteredDrivers,
+    expenseItems,
+    filteredEvents,
+    filteredEventLocationLabels,
+    filteredFuelTheft,
+    filteredFuelTheftLocationLabels,
+    filteredTripSummaries,
+    tripSummaryLocationLabels,
+    filterNewReportData,
+  ]);
 
   return (
-    <div className="min-h-full pb-28 bg-[#f7f8fa] dark:bg-slate-950 transition-colors">
+    <div className="min-h-full pb-8 sm:pb-6 bg-[#f7f8fa] dark:bg-slate-950 transition-colors">
       {activeTab === 'report-menu' && (
         <>
           <InternalPageHeader
@@ -682,7 +844,7 @@ export default function Reports() {
             onChange={(e) => setSelectedVehicle(e.target.value)}
             className="h-10 w-full cursor-pointer appearance-none rounded-xl border border-slate-200/80 bg-white py-2 pl-8 pr-8 text-[12px] font-semibold text-slate-700 shadow-sm outline-none transition-all duration-200 hover:border-slate-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600"
           >
-            <option value="all">Select Report Vehicle</option>
+            <option value="all">Select Report Unit</option>
             {reportVehicles.map((v) => (
               <option key={v.id} value={v.id}>{v.name} · {v.plateNumber}</option>
             ))}
@@ -777,13 +939,13 @@ export default function Reports() {
           {/* Vehicle Performance */}
           <div>
             <div className="flex items-center justify-between mb-3 px-1">
-              <h3 className="text-body font-semibold text-slate-700 dark:text-slate-200">Vehicle Performance</h3>
-              <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filteredVehicles.length} vehicles</span>
+              <h3 className="text-body font-semibold text-slate-700 dark:text-slate-200">Unit Performance</h3>
+              <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filteredVehicles.length} units</span>
             </div>
             <div className="space-y-3">
               {filteredVehicles.map((v) => (
                 (() => {
-                  const fleetVehicle = fleetVehicles.find((vehicle) => vehicle.id === v.id);
+                  const fleetVehicle = vehiclesById.get(v.id);
                   return (
                 <div
                   key={v.id}
@@ -1082,9 +1244,23 @@ export default function Reports() {
                     </span>
                   </div>
                   <p className="text-caption-sm text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{evt.description}</p>
+                  <div className="mt-2 grid grid-cols-3 gap-1.5 text-[9.5px] font-semibold text-slate-500 dark:text-slate-400">
+                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
+                      <i className="ph ph-drop mr-1 text-slate-400" />
+                      From level: {evt.fromLevelLiters?.toFixed(1) ?? '--'}L
+                    </span>
+                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
+                      <i className="ph ph-drop-simple mr-1 text-slate-400" />
+                      To level: {evt.toLevelLiters?.toFixed(1) ?? '--'}L
+                    </span>
+                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
+                      <i className="ph ph-clock mr-1 text-slate-400" />
+                      Time duration: {evt.startTime && evt.endTime ? `${evt.startTime} - ${evt.endTime}` : '--'}
+                    </span>
+                  </div>
                   <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 flex items-center gap-1">
                     <i className="ph ph-map-pin text-slate-300 dark:text-slate-500" />
-                    {evt.location}
+                    {filteredEventLocationLabels[evt.id] ?? evt.location}
                   </p>
                 </div>
                 <button
@@ -1108,121 +1284,97 @@ export default function Reports() {
         </div>
       )}
 
-      {/* Overspeed Report */}
-      {activeTab === 'overspeed' && (
-        <OverspeedReport
-          selectedVehicle={selectedVehicle}
-          dateRange={dateRange}
-          customStart={customStart}
-          customEnd={customEnd}
-          onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
-        />
-      )}
+      <Suspense
+        fallback={(
+          <div className="px-5 py-12 text-center text-slate-400 dark:text-slate-500">
+            Loading report...
+          </div>
+        )}
+      >
+        {/* Overspeed Report */}
+        {activeTab === 'overspeed' && (
+          <OverspeedReport
+            selectedVehicle={selectedVehicle}
+            dateRange={dateRange}
+            customStart={customStart}
+            customEnd={customEnd}
+            vehicles={fleetVehicles}
+            onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
+          />
+        )}
 
-      {/* Stoppage Report */}
-      {activeTab === 'stoppage' && (
-        <StoppageReport
-          selectedVehicle={selectedVehicle}
-          dateRange={dateRange}
-          customStart={customStart}
-          customEnd={customEnd}
-          onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
-        />
-      )}
+        {/* Stoppage Report */}
+        {activeTab === 'stoppage' && (
+          <StoppageReport
+            selectedVehicle={selectedVehicle}
+            dateRange={dateRange}
+            customStart={customStart}
+            customEnd={customEnd}
+            vehicles={fleetVehicles}
+            onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
+          />
+        )}
 
-      {/* Trip Summary Report */}
-      {activeTab === 'trip-summary' && (
-        <TripSummaryReport
-          selectedVehicle={selectedVehicle}
-          dateRange={dateRange}
-          customStart={customStart}
-          customEnd={customEnd}
-        />
-      )}
+        {/* Trip Summary Report */}
+        {activeTab === 'trip-summary' && (
+          <TripSummaryReport
+            selectedVehicle={selectedVehicle}
+            dateRange={dateRange}
+            customStart={customStart}
+            customEnd={customEnd}
+            vehicles={fleetVehicles}
+          />
+        )}
 
-      {/* General Report */}
-      {activeTab === 'general' && (
-        <GeneralReport
-          selectedVehicle={selectedVehicle}
-          dateRange={dateRange}
-          customStart={customStart}
-          customEnd={customEnd}
-        />
-      )}
+        {/* General Report */}
+        {activeTab === 'general' && (
+          <GeneralReport
+            selectedVehicle={selectedVehicle}
+            dateRange={dateRange}
+            customStart={customStart}
+            customEnd={customEnd}
+            vehicles={fleetVehicles}
+          />
+        )}
 
-      {/* AC Report */}
-      {activeTab === 'ac' && (
-        <ACReport
-          selectedVehicle={selectedVehicle}
-          dateRange={dateRange}
-          customStart={customStart}
-          customEnd={customEnd}
-        />
-      )}
+        {/* AC Report */}
+        {activeTab === 'ac' && (
+          <ACReport
+            selectedVehicle={selectedVehicle}
+            dateRange={dateRange}
+            customStart={customStart}
+            customEnd={customEnd}
+            vehicles={fleetVehicles}
+          />
+        )}
 
-      {/* Fuel Filling Report */}
-      {activeTab === 'fuel-filling' && (
-        <FuelFillingReport
-          selectedVehicle={selectedVehicle}
-          dateRange={dateRange}
-          customStart={customStart}
-          customEnd={customEnd}
-        />
-      )}
+        {/* Fuel Filling Report */}
+        {activeTab === 'fuel-filling' && (
+          <FuelFillingReport
+            selectedVehicle={selectedVehicle}
+            dateRange={dateRange}
+            customStart={customStart}
+            customEnd={customEnd}
+            vehicles={fleetVehicles}
+            onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
+          />
+        )}
+      </Suspense>
 
       {/* Fuel Theft Report */}
       {activeTab === 'fuel-theft' && (
-        <div className="px-3 mt-3 space-y-3 sm:px-5">
-          {filteredFuelTheft.map((evt) => (
-            <div key={evt.id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-700 shadow-[0_4px_20px_rgba(0,0,0,0.07)] dark:shadow-none hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300">
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 flex items-center justify-center rounded-xl flex-shrink-0 shadow-sm ${severityIconBg(evt.severity)}`}>
-                  <i className="ph ph-drop text-sm text-red-500 dark:text-red-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-caption font-semibold text-slate-800 dark:text-slate-100">Fuel Theft</p>
-                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-lg ${severityBadge(evt.severity)}`}>{evt.severity}</span>
-                  </div>
-                  <div className="mt-1 grid grid-cols-3 gap-1.5 text-[9.5px] font-semibold text-slate-500 dark:text-slate-400">
-                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
-                      <i className="ph ph-car mr-1 text-slate-400" />
-                      {evt.vehicle}
-                    </span>
-                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
-                      <i className="ph ph-user mr-1 text-slate-400" />
-                      {evt.driver}
-                    </span>
-                    <span className="truncate rounded-lg bg-slate-50 px-1.5 py-1 dark:bg-slate-800">
-                      <i className="ph ph-clock mr-1 text-slate-400" />
-                      {evt.time}
-                    </span>
-                  </div>
-                  <p className="text-caption-sm text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{evt.description}</p>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 flex items-center gap-1">
-                    <i className="ph ph-map-pin text-slate-300 dark:text-slate-500" />
-                    {evt.location}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setGenericMap({ lat: evt.lat, lng: evt.lng, label: `${evt.vehicle} · Fuel Theft · ${evt.location}` })}
-                  className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0 w-12 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/40 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 hover:shadow-md transition-all duration-200 active:scale-95"
-                >
-                  <i className="ph ph-map-pin-area text-base" />
-                  <span className="text-[10px] font-semibold">view</span>
-                </button>
-              </div>
-            </div>
-          ))}
-          {filteredFuelTheft.length === 0 && (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 flex items-center justify-center rounded-2xl bg-white dark:bg-slate-800 mx-auto mb-3 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-200/60 dark:border-slate-700">
-                <i className="ph ph-drop text-2xl text-slate-300 dark:text-slate-600" />
-              </div>
-              <p className="text-body text-slate-400 dark:text-slate-500">No fuel theft events for this selection</p>
+        <Suspense
+          fallback={(
+            <div className="px-5 py-12 text-center text-slate-400 dark:text-slate-500">
+              Loading fuel theft report...
             </div>
           )}
-        </div>
+        >
+          <FuelTheftReport
+            events={filteredFuelTheft as FuelTheftEvent[]}
+            onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
+          />
+        </Suspense>
       )}
 
       {/* Idle Report */}
@@ -1232,6 +1384,7 @@ export default function Reports() {
           dateRange={dateRange}
           customStart={customStart}
           customEnd={customEnd}
+          vehicles={fleetVehicles}
           onMapView={(lat, lng, label) => setGenericMap({ lat, lng, label })}
         />
       )}
@@ -1251,7 +1404,7 @@ export default function Reports() {
                   </div>
                   <div>
                     <p className="text-caption font-semibold text-slate-800 dark:text-slate-100">{evt.type}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{evt.vehicle} · {evt.location}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{evt.vehicle} · {filteredEventLocationLabels[evt.id] ?? evt.location}</p>
                   </div>
                 </div>
                 <button onClick={() => setMapEventId(null)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-300 transition-all shadow-sm">

@@ -14,7 +14,7 @@ const steps = [
   { num: 2, title: 'Device Brand', icon: 'ph ph-cpu' },
   { num: 3, title: 'Model', icon: 'ph ph-gear' },
   { num: 4, title: 'SIM Number', icon: 'ph ph-sim-card' },
-  { num: 5, title: 'Vehicle Details', icon: 'ph ph-car' },
+  { num: 5, title: 'Unit Details', icon: 'ph ph-car' },
 ];
 
 const FINAL_STEP = steps.length;
@@ -396,7 +396,7 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
               <div className="space-y-4">
                 <div>
                   <label className="text-caption-sm font-medium text-text-secondary mb-1.5 block">
-                    Vehicle Name
+                    Unit Name
                   </label>
                   <div className="relative">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center">
@@ -431,7 +431,7 @@ export default function AddDeviceWizard({ isOpen, onClose, onDeviceAdded, existi
                 </div>
                 <div>
                   <label className="text-caption-sm font-medium text-text-secondary mb-1.5 block">
-                    Vehicle Type (Optional)
+                    Unit Type (Optional)
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {['Sedan', 'SUV', 'Truck', 'Van', 'Bus', 'Motorcycle'].map((type) => (

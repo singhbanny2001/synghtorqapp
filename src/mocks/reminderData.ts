@@ -1,4 +1,6 @@
-import { servicesData, type ServiceItem } from './servicesData';
+import { getLiveFleetSnapshotSync } from '@/utils/liveFleet';
+import { supabase } from '@/utils/supabase';
+import type { ServiceItem } from './servicesData';
 
 export const REMINDER_STORAGE_KEY = 'syngh-torq-reminders';
 
@@ -16,6 +18,30 @@ function getStatus(dueInDays: number): ServiceItem['status'] {
   if (dueInDays < 0) return 'overdue';
   if (dueInDays <= 14) return 'due';
   return 'upcoming';
+}
+
+function normalizeServiceType(value: unknown): ServiceItem['type'] {
+  const type = String(value || '').toLowerCase();
+  if (
+    type === 'maintenance' ||
+    type === 'insurance' ||
+    type === 'registration' ||
+    type === 'inspection' ||
+    type === 'tire' ||
+    type === 'brake' ||
+    type === 'oil' ||
+    type === 'transmission'
+  ) {
+    return type;
+  }
+  if (type.includes('insurance')) return 'insurance';
+  if (type.includes('registration')) return 'registration';
+  if (type.includes('inspection')) return 'inspection';
+  if (type.includes('tire')) return 'tire';
+  if (type.includes('brake')) return 'brake';
+  if (type.includes('oil')) return 'oil';
+  if (type.includes('transmission')) return 'transmission';
+  return 'maintenance';
 }
 
 function normalizeReminder(raw: Partial<ServiceItem>): ServiceItem | null {
@@ -51,12 +77,22 @@ function normalizeReminder(raw: Partial<ServiceItem>): ServiceItem | null {
 
 function readStoredReminders() {
   const raw = window.localStorage.getItem(REMINDER_STORAGE_KEY);
-  if (!raw) return servicesData;
+  if (!raw) return [];
 
   const parsed = JSON.parse(raw) as Partial<ServiceItem>[];
-  if (!Array.isArray(parsed)) return servicesData;
+  if (!Array.isArray(parsed)) return buildLiveReminders();
 
-  return parsed.map(normalizeReminder).filter(Boolean) as ServiceItem[];
+  const normalized = parsed.map(normalizeReminder).filter(Boolean) as ServiceItem[];
+  const liveOrUserEntries = normalized.filter((record) => (
+    record.id.startsWith('reminder-') ||
+    record.id.startsWith('live-reminder-')
+  ));
+
+  if (liveOrUserEntries.length === 0) {
+    return buildLiveReminders();
+  }
+
+  return liveOrUserEntries;
 }
 
 function writeStoredReminders(records: ServiceItem[]) {
@@ -73,14 +109,141 @@ function validateReminder(input: ReminderInput) {
   if (input.serviceIntervalKm < 0) throw new Error('Service interval cannot be negative.');
 }
 
+function buildLiveReminders(): ServiceItem[] {
+  const vehicles = getLiveFleetSnapshotSync()?.vehicles ?? [];
+  return vehicles
+    .filter((vehicle) => Boolean(vehicle.expiryDate))
+    .map((vehicle, index) => {
+      const dueDate = vehicle.expiryDate as string;
+      const dueInDays = calculateDueInDays(dueDate);
+      return {
+        id: `live-reminder-${vehicle.id}-${index}`,
+        vehicleId: vehicle.id,
+        vehicleName: vehicle.name,
+        plate: vehicle.plateNumber,
+        type: 'registration',
+        title: `${vehicle.name} renewal`,
+        dueDate,
+        dueInDays,
+        status: getStatus(dueInDays),
+        priority: dueInDays < 7 ? 'high' : 'medium',
+        estimatedCost: 0,
+        lastServiceDate: '',
+        lastServiceOdometer: 0,
+        currentOdometer: vehicle.odometer,
+        serviceIntervalKm: 0,
+        notes: 'Live backend reminder',
+        assignedTo: vehicle.driver,
+      };
+    });
+}
+
+async function fetchBackendReminders(): Promise<ServiceItem[]> {
+  const vehicles = getLiveFleetSnapshotSync()?.vehicles ?? [];
+  const vehicleById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
+  const vehicleByDeviceId = new Map(vehicles.filter((vehicle) => vehicle.deviceId).map((vehicle) => [vehicle.deviceId, vehicle]));
+
+  const [serviceResp, renewalResp] = await Promise.all([
+    supabase
+      .from('vehicle_service_reminders')
+      .select('id, device_id, vehicle_id, service_name, service_type, due_date, due_odometer, reminder_km, status, notes')
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .limit(200),
+    supabase
+      .from('vehicle_document_renewals')
+      .select('id, device_id, vehicle_id, document_type, expiry_date, reminder_days, status, notes')
+      .order('expiry_date', { ascending: true, nullsFirst: false })
+      .limit(200),
+  ]);
+
+  if (serviceResp.error && serviceResp.error.code !== '42P01') throw serviceResp.error;
+  if (renewalResp.error && renewalResp.error.code !== '42P01') throw renewalResp.error;
+
+  const serviceRows = (serviceResp.data || []) as Array<Record<string, unknown>>;
+  const renewalRows = (renewalResp.data || []) as Array<Record<string, unknown>>;
+
+  const serviceItems = serviceRows.map((row): ServiceItem | null => {
+    const vehicleId = String(row.vehicle_id || '');
+    const deviceId = String(row.device_id || '');
+    const vehicle = vehicleById.get(vehicleId) || vehicleByDeviceId.get(deviceId);
+    const dueDate = String(row.due_date || '');
+    if (!vehicle || !dueDate) return null;
+    const dueInDays = calculateDueInDays(dueDate);
+    return {
+      id: String(row.id),
+      vehicleId: vehicle.id,
+      vehicleName: vehicle.name,
+      plate: vehicle.plateNumber,
+      type: normalizeServiceType(row.service_type),
+      title: String(row.service_name || 'Service'),
+      dueDate,
+      dueInDays,
+      status: String(row.status || '') === 'completed' ? 'completed' : getStatus(dueInDays),
+      priority: dueInDays < 7 ? 'high' : dueInDays < 30 ? 'medium' : 'low',
+      estimatedCost: 0,
+      lastServiceDate: '',
+      lastServiceOdometer: 0,
+      currentOdometer: vehicle.odometer,
+      serviceIntervalKm: Number(row.reminder_km || row.due_odometer || 0),
+      notes: String(row.notes || ''),
+      assignedTo: vehicle.driver,
+    };
+  }).filter(Boolean) as ServiceItem[];
+
+  const renewalItems = renewalRows.map((row): ServiceItem | null => {
+    const vehicleId = String(row.vehicle_id || '');
+    const deviceId = String(row.device_id || '');
+    const vehicle = vehicleById.get(vehicleId) || vehicleByDeviceId.get(deviceId);
+    const dueDate = String(row.expiry_date || '');
+    if (!vehicle || !dueDate) return null;
+    const dueInDays = calculateDueInDays(dueDate);
+    return {
+      id: String(row.id),
+      vehicleId: vehicle.id,
+      vehicleName: vehicle.name,
+      plate: vehicle.plateNumber,
+      type: normalizeServiceType(row.document_type),
+      title: `${String(row.document_type || 'Document')} renewal`,
+      dueDate,
+      dueInDays,
+      status: String(row.status || '') === 'completed' ? 'completed' : getStatus(dueInDays),
+      priority: dueInDays < 7 ? 'high' : dueInDays < 30 ? 'medium' : 'low',
+      estimatedCost: 0,
+      lastServiceDate: '',
+      lastServiceOdometer: 0,
+      currentOdometer: vehicle.odometer,
+      serviceIntervalKm: 0,
+      notes: String(row.notes || ''),
+      assignedTo: vehicle.driver,
+    };
+  }).filter(Boolean) as ServiceItem[];
+
+  return [...serviceItems, ...renewalItems];
+}
+
 export async function listReminders() {
   try {
+    const backendRecords = await fetchBackendReminders();
+    if (backendRecords.length > 0) {
+      writeStoredReminders(backendRecords);
+      return backendRecords;
+    }
+    const liveRecords = buildLiveReminders();
+    const storedRecords = readStoredReminders();
+    const merged = liveRecords.length > 0 ? [...liveRecords] : [...storedRecords];
+    if (liveRecords.length > 0) {
+      for (const record of storedRecords) {
+        if (!merged.some((item) => item.id === record.id)) {
+          merged.push(record);
+        }
+      }
+    }
+    writeStoredReminders(merged);
+    return merged;
+  } catch {
     const records = readStoredReminders();
     writeStoredReminders(records);
     return records;
-  } catch {
-    writeStoredReminders(servicesData);
-    return servicesData;
   }
 }
 

@@ -47,6 +47,7 @@ export interface DashcamRecording {
 
 export interface VehicleDetailData {
   id: string;
+  deviceId?: string | null;
   name: string;
   plateNumber: string;
   status: string;
@@ -62,7 +63,7 @@ export interface VehicleDetailData {
   batteryLevel: number;
   gpsSignal: number;
   immobilizer: boolean;
-  fuelLevel: number;
+  fuelLevel: number | null;
   fuelCapacity: number;
   fuelConsumedToday: number;
   fuelRefilledToday: number;
@@ -83,7 +84,7 @@ export interface VehicleDetailData {
   costToday: number;
   fuelCostToday: number;
   rpm: number;
-  engineTemp: number;
+  engineTemp: number | null;
   batteryVoltage: number;
   engineLoad: number;
   engineHours: number;
@@ -124,18 +125,27 @@ export interface VehicleDetailData {
   odometer: number;
   trackerId: string;
   vehicleType: VehicleIconVariant;
+  heading: number;
   simNumber: string;
   installationDate: string;
   lastCalibrationDate: string;
+  lastUpdated?: string;
+  statusSince?: string;
+  companyTimezone?: string | null;
   aiInsights: AIInsightItem[];
   vehicleImage: string;
   hasDashcam: boolean;
+  dashcamLiveImageUrl?: string | null;
+  dashcamLiveStreamUrl?: string | null;
+  hasFuelSensor: boolean;
+  hasTemperatureSensor: boolean;
   dashcamCameras: DashcamCamera[];
   dashcamRecordings: DashcamRecording[];
 }
 
 export const vehicleDetailData: VehicleDetailData = {
   id: 'v2',
+  deviceId: null,
   name: 'ISABELA 04',
   plateNumber: 'TK-102',
   status: 'moving',
@@ -228,9 +238,11 @@ export const vehicleDetailData: VehicleDetailData = {
   odometer: 12340,
   trackerId: 'TRK-2024-002-A',
   vehicleType: 'van',
+  heading: 0,
   simNumber: '8901410321111851072',
   installationDate: '2024-01-15',
   lastCalibrationDate: '2026-03-10',
+  lastUpdated: '2026-06-27T05:06:41+00:00',
   aiInsights: [
     { type: 'warning', text: 'Fuel consumption increased 14% this week' },
     { type: 'warning', text: 'Idle fuel waste estimated at \u20B1350 today' },
@@ -240,11 +252,13 @@ export const vehicleDetailData: VehicleDetailData = {
     { type: 'success', text: 'Vehicle utilization increased this week' },
   ],
   vehicleImage: 'https://readdy.ai/api/search-image?query=2026%20premium%203D%20fleet%20vehicle%20hero%20render%20of%20a%20dark%20blue%20Ford%20Transit%20350%20cargo%20van%2C%20three-quarter%20front%20angle%2C%20clean%20bright%20studio%20environment%2C%20soft%20floor%20reflection%2C%20enterprise%20fleet%20management%20dashboard%20visual%2C%20high-end%20automotive%20CGI%2C%20ultra%20sharp%2C%20modern%202026%20product%20render&width=600&height=400&seq=latest-detail-v102&orientation=landscape',
-  hasDashcam: true,
+  hasDashcam: false,
+  hasFuelSensor: true,
+  hasTemperatureSensor: true,
   dashcamCameras: [
-    { id: 'front', name: 'Front', label: 'Road View' },
-    { id: 'interior', name: 'Cabin', label: 'Driver View' },
-    { id: 'rear', name: 'Rear', label: 'Cargo View' },
+    { id: 'front', name: 'Cam1', label: 'Cam1' },
+    { id: 'interior', name: 'Cam2', label: 'Cam2' },
+    { id: 'rear', name: 'Cam3', label: 'Cam3' },
   ],
   dashcamRecordings: [
     { id: 'rec1', time: 'Today, 14:32', camera: 'front', duration: '00:48', event: 'Hard Braking', eventType: 'harsh_braking', thumbnail: 'https://readdy.ai/api/search-image?query=Dashboard%20camera%20view%20of%20a%20suburban%20road%20from%20inside%20a%20delivery%20van%20windshield%2C%20bright%20daylight%2C%20road%20ahead%20with%20moderate%20traffic%2C%20clean%20dashboard%20reflection%20minimal%2C%20realistic%20dashcam%20footage%20aesthetic%20with%20timestamp%20overlay%20style%2C%20slightly%20wide%20angle%20lens%20perspective&width=320&height=180&seq=dash-thumb-01&orientation=landscape' },

@@ -7,13 +7,14 @@ import InternalPageHeader from '@/components/InternalPageHeader';
 import { useFleetVehicles } from '@/mocks/fleetStore';
 
 const roleBadgeColors: Record<string, string> = {
+  company_owner: 'bg-amber-50 text-amber-800 border-amber-200',
   manager: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   supervisor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   viewer: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
-const roleOrder: UserRole[] = ['manager', 'supervisor', 'viewer'];
-const editableRoles: UserRole[] = ['manager', 'supervisor', 'viewer'];
+const roleOrder: UserRole[] = ['company_owner', 'manager', 'supervisor', 'viewer'];
+const editableRoles: UserRole[] = ['company_owner', 'manager', 'supervisor', 'viewer'];
 
 export default function TeamManagement() {
   const navigate = useNavigate();
@@ -388,7 +389,7 @@ export default function TeamManagement() {
                   <div className="flex items-center gap-3 mt-1.5">
                     <span className="text-caption-sm text-text-tertiary">
                       <i className="ph ph-car mr-1" />
-                      {member.assignedVehicleIds.length} vehicles
+                      {member.assignedVehicleIds.length} units
                     </span>
                     {member.status === 'invited' && (
                       <span className="text-[10px] font-medium text-warning bg-warning-light px-1.5 py-0.5 rounded-full">
@@ -587,7 +588,7 @@ export default function TeamManagement() {
               {/* Role */}
               <div>
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">Role</label>
-                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                   {editableRoles.map((role) => (
                     <button
                       key={role}
@@ -600,6 +601,7 @@ export default function TeamManagement() {
                     >
                       <div className="flex h-3.5 w-3.5 items-center justify-center">
                         <i className={
+                          role === 'company_owner' ? 'ph ph-crown-simple' :
                           role === 'manager' ? 'ph ph-shield-star' :
                           role === 'supervisor' ? 'ph ph-gear' : 'ph ph-eye'
                         } />
@@ -613,7 +615,7 @@ export default function TeamManagement() {
               {/* Vehicle Assignment */}
               <div>
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                  Assigned Vehicles ({selectedVehicles.length} selected)
+                  Assigned Units ({selectedVehicles.length} selected)
                 </label>
                 <div className="grid grid-cols-2 gap-1.5">
                   {vehicles.map((vehicle) => {
@@ -724,7 +726,7 @@ export default function TeamManagement() {
               {/* Role */}
               <div>
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">Role</label>
-                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                   {editableRoles.map((role) => (
                     <button
                       key={role}
@@ -737,6 +739,7 @@ export default function TeamManagement() {
                     >
                       <div className="flex h-3.5 w-3.5 items-center justify-center">
                         <i className={
+                          role === 'company_owner' ? 'ph ph-crown-simple' :
                           role === 'manager' ? 'ph ph-shield-star' :
                           role === 'supervisor' ? 'ph ph-gear' : 'ph ph-eye'
                         } />

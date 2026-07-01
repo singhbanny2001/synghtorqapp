@@ -34,7 +34,13 @@ export default function HeaderSection({ data, onBack }: Props) {
             <h1 className="fleet-module-title truncate">{data.name}</h1>
           </div>
         </div>
-        <div className="reports-header-actions">
+        <div className="reports-header-actions flex items-center gap-2">
+          {data.hasDashcam && (
+            <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+              <i className="ph ph-camera text-[12px]" />
+              CAM
+            </span>
+          )}
           <span className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${sc.bg} ${sc.text}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${sc.dot} ${runtimeStatus === 'moving' ? 'animate-pulse' : ''}`} />
             {sc.label}

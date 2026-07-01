@@ -218,7 +218,7 @@ export default function Renewals() {
             </button>
             <div className="min-w-0">
               <h1 className="text-title font-bold text-text-primary truncate">Renewals</h1>
-              <p className="text-caption-sm text-text-secondary mt-0.5 truncate">Vehicle permits & insurance</p>
+              <p className="text-caption-sm text-text-secondary mt-0.5 truncate">Unit permits & insurance</p>
             </div>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -249,7 +249,7 @@ export default function Renewals() {
             onChange={(e) => setSelectedVehicle(e.target.value)}
             className="w-full pl-10 pr-10 py-3 rounded-xl text-body outline-none bg-surface-card text-text-primary border border-surface-border appearance-none cursor-pointer"
           >
-            <option value="all">All Vehicles</option>
+            <option value="all">All Units</option>
             {vehicles.map((v) => (
               <option key={v.id} value={v.id}>{v.name} · {v.plateNumber}</option>
             ))}
@@ -310,7 +310,7 @@ export default function Renewals() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search renewals, vehicles..."
+            placeholder="Search renewals, units..."
             className="w-full pl-10 pr-4 py-3 rounded-xl text-body outline-none bg-surface-card text-text-primary border border-surface-border placeholder-text-tertiary focus:border-primary/50"
           />
         </div>
@@ -393,7 +393,7 @@ export default function Renewals() {
                   onClick={() => navigate(`/vehicle/${r.vehicleId}`)}
                   className="text-[10px] font-semibold text-primary btn-press whitespace-nowrap"
                 >
-                  View Vehicle
+                  View Unit
                 </button>
               </div>
             </div>
@@ -472,7 +472,7 @@ export default function Renewals() {
             <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-4">
               {/* Vehicle Select */}
               <div>
-                <label className="text-caption-sm font-medium text-text-secondary mb-1.5 block">Vehicle</label>
+                <label className="text-caption-sm font-medium text-text-secondary mb-1.5 block">Unit</label>
                 <div className="relative">
                   <div className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center">
                     <i className="ph ph-car text-text-tertiary" />
@@ -482,7 +482,7 @@ export default function Renewals() {
                     onChange={(e) => setReminderVehicle(e.target.value)}
                     className="w-full pl-10 pr-10 py-3 rounded-xl text-body outline-none bg-surface-dark text-text-primary border border-surface-border appearance-none cursor-pointer"
                   >
-                    <option value="">Select a vehicle</option>
+                    <option value="">Select a unit</option>
                     {vehicles.map((v) => (
                       <option key={v.id} value={v.id}>{v.name} · {v.plateNumber}</option>
                     ))}

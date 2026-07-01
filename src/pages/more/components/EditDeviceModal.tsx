@@ -85,9 +85,9 @@ export default function EditDeviceModal({ vehicle, onSave, onClose }: EditDevice
             </div>
           </div>
 
-          {/* Vehicle Name */}
+          {/* Unit Name */}
           <div>
-            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-text-tertiary">Vehicle Name</label>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-text-tertiary">Unit Name</label>
             <input
               type="text"
               value={name}
@@ -120,8 +120,8 @@ export default function EditDeviceModal({ vehicle, onSave, onClose }: EditDevice
 
           {/* Icon Selection */}
           <div>
-            <label className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-text-tertiary">Vehicle Icon</label>
-            <p className="mb-2 text-[9px] leading-tight text-text-tertiary">Choose the vehicle type used for tracking and reporting.</p>
+            <label className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-text-tertiary">Unit Icon</label>
+            <p className="mb-2 text-[9px] leading-tight text-text-tertiary">Choose the unit type used for tracking and reporting.</p>
 
             {/* Category Tabs */}
             <div className="mb-2 grid grid-cols-5 gap-1">

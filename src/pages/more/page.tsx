@@ -143,7 +143,7 @@ export default function More() {
   const drivers = useDrivers();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isDark, toggleTheme } = useTheme();
-  const { user, can, isViewer, logout } = useAuth();
+  const { user, can, canAccessPath, isViewer, logout } = useAuth();
   const [settingsExpanded, setSettingsExpanded] = useState(() => searchParams.get('settings') === '1');
   const [notificationsMuted, setNotificationsMuted] = useState(false);
   const [showGeofenceModal, setShowGeofenceModal] = useState(false);
@@ -195,7 +195,7 @@ export default function More() {
   );
   const selectedShareVehicle = useMemo(
     () => vehicles.find((vehicle) => vehicle.id === shareForm.vehicleId),
-    [shareForm.vehicleId],
+    [shareForm.vehicleId, vehicles],
   );
   const selectedShareDriver = useMemo(
     () => registeredDrivers.find((driver) => driver.id === shareForm.driverId),
@@ -586,7 +586,7 @@ export default function More() {
         </div>}
 
         {/* Settings Section - Expandable */}
-        {(can('settings') || can('manageUsers')) && <div>
+        {(can('settings') || can('manageUsers') || canAccessPath('/devices')) && <div>
           <button
             onClick={() => setSettingsExpanded(!settingsExpanded)}
           className={moreMenuRowClass}
@@ -616,12 +616,12 @@ export default function More() {
                 <div className={moreMenuIconClass}>
                   <i className="ph-fill ph-user-list text-[18px]" />
                 </div>
-                <span className={moreMenuLabelClass}>Drivers</span>
+                <span className={moreMenuLabelClass}>Employees</span>
                 <i className="ph ph-caret-right text-text-tertiary text-xl" />
               </button>}
 
               {/* Devices */}
-              {can('settings') && <button
+              {(can('settings') || canAccessPath('/devices')) && <button
                 onClick={() => navigate('/devices')}
                 className={moreMenuRowClass}
               >
@@ -732,7 +732,7 @@ export default function More() {
 
             <div className="share-link-modal-body">
               <label className="block">
-                <span className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Select Vehicle</span>
+                <span className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Select Unit</span>
                 <select
                   value={shareForm.vehicleId}
                   onChange={(event) => setShareForm((form) => ({ ...form, vehicleId: event.target.value, token: makeShareToken() }))}
@@ -803,7 +803,7 @@ export default function More() {
               )}
 
               <label className="block">
-                <span className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Registered Driver</span>
+                <span className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Registered Employee</span>
                 <select
                   value={shareForm.driverId}
                   onChange={(event) => setShareForm((form) => ({ ...form, driverId: event.target.value, token: makeShareToken() }))}
@@ -819,11 +819,11 @@ export default function More() {
 
               <div className="grid grid-cols-2 gap-1.5">
                 <div className="rounded-xl border border-surface-border bg-surface-subtle/70 px-2.5 py-1.5">
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Driver Name</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-text-primary">{selectedShareDriver?.name ?? 'Select driver'}</p>
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Employee Name</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-text-primary">{selectedShareDriver?.name ?? 'Select employee'}</p>
                 </div>
                 <div className="rounded-xl border border-surface-border bg-surface-subtle/70 px-2.5 py-1.5">
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Driver Contact</p>
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-text-tertiary">Employee Contact</p>
                   <p className="mt-0.5 truncate text-[11px] font-semibold text-text-primary">{selectedShareDriver?.contactNumber ?? 'No contact'}</p>
                 </div>
               </div>
@@ -1020,8 +1020,8 @@ export default function More() {
                             </p>
                             <p className="text-[10px] text-text-tertiary mt-0.5">
                               {geofence.assignmentMode === 'all'
-                                ? 'All vehicles assigned'
-                                : `${geofence.assignedVehicleIds.length} selected vehicles`}
+                                ? 'All units assigned'
+                                : `${geofence.assignedVehicleIds.length} selected units`}
                             </p>
                           </div>
                           <div className="flex flex-shrink-0 flex-col items-end gap-1">
@@ -1294,7 +1294,7 @@ export default function More() {
                   </section>
 
                   <section className="space-y-1.5">
-                    <p className="text-[11px] font-bold text-text-primary">Vehicle Assignments</p>
+                    <p className="text-[11px] font-bold text-text-primary">Unit Assignments</p>
                     <div className="grid grid-cols-2 gap-1.5">
                       {(['all', 'selected'] as const).map((mode) => (
                         <button
@@ -1307,12 +1307,12 @@ export default function More() {
                               : 'border-surface-border bg-surface-card text-text-secondary'
                           }`}
                         >
-                          {mode === 'all' ? 'All Vehicles' : 'Selected'}
+                          {mode === 'all' ? 'All Units' : 'Selected'}
                         </button>
                       ))}
                     </div>
                     {geofenceForm.assignmentMode === 'all' ? (
-	                      <p className="text-[9px] text-text-tertiary">All {vehicles.length} vehicles assigned</p>
+	                      <p className="text-[9px] text-text-tertiary">All {vehicles.length} units assigned</p>
                     ) : (
                       <div className="grid max-h-32 gap-1 overflow-y-auto rounded-xl border border-surface-border bg-surface-card p-2">
                         {vehicles.map((vehicle) => (

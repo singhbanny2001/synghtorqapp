@@ -17,8 +17,8 @@ interface StatusItem {
 export default function StatusPanel({ data, onDashcamClick }: Props) {
   const items: StatusItem[] = [
     { icon: 'ph ph-power', label: 'IGN', status: data.ignition ? 'On' : 'Off', active: data.ignition, activeColor: 'text-emerald-500', inactiveColor: 'text-red-500' },
-    { icon: 'ph ph-snowflake', label: 'AC', status: data.acStatus ? 'On' : 'Off', active: data.acStatus, activeColor: 'text-blue-400', inactiveColor: 'text-gray-500' },
-    { icon: 'ph ph-door', label: 'Door', status: data.doorStatus ? 'Open' : 'Closed', active: !data.doorStatus, activeColor: 'text-emerald-500', inactiveColor: 'text-red-500' },
+    ...(data.acStatus === null ? [] : [{ icon: 'ph ph-snowflake', label: 'AC', status: data.acStatus ? 'On' : 'Off', active: data.acStatus, activeColor: 'text-blue-400', inactiveColor: 'text-gray-500' }]),
+    ...(data.doorStatus === null ? [] : [{ icon: 'ph ph-door', label: 'Door', status: data.doorStatus ? 'Open' : 'Closed', active: !data.doorStatus, activeColor: 'text-emerald-500', inactiveColor: 'text-red-500' }]),
     { icon: 'ph ph-wifi-high', label: 'Net', status: data.networkStatus ? 'On' : 'Off', active: data.networkStatus, activeColor: 'text-emerald-500', inactiveColor: 'text-red-500' },
     { icon: 'ph ph-battery-charging', label: 'Chrg', status: data.charging ? 'Yes' : 'No', active: data.charging, activeColor: 'text-emerald-500', inactiveColor: 'text-gray-500' },
     { icon: 'ph ph-battery-medium', label: 'Batt', status: `${data.batteryLevel}%`, active: data.batteryLevel > 30, activeColor: data.batteryLevel > 50 ? 'text-emerald-500' : 'text-amber-500', inactiveColor: 'text-red-500' },

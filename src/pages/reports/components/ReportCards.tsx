@@ -3,8 +3,9 @@ import {
   overspeedRecords, stoppageRecords, tripSummaryRecords,
   generalReportRecords, acRecords, fuelFillingRecords,
   idleRecords,
-} from '@/mocks/reportsData';
-import { listFleetVehicles } from '@/mocks/fleetStore';
+} from '@/utils/liveReports';
+import type { Vehicle } from '@/mocks/fleetData';
+import { useResolvedLocationLabels, type ResolvedLocationInput } from '@/utils/useResolvedLocationLabels';
 
 function isDateInRange(dateStr: string, range: string, customStart?: string, customEnd?: string): boolean {
   if (range === 'all') return true;
@@ -68,9 +69,11 @@ function severityIconBg(severity: string) {
   return map[severity] || 'bg-slate-100/80 dark:bg-slate-500/20 text-slate-500 dark:text-slate-400 ring-1 ring-slate-200/50 dark:ring-slate-500/30';
 }
 
-function canonicalizeVehicleRecord<T extends { vehicleId: string; vehicle: string; plate: string; driver?: string }>(record: T): T {
-  const vehicles = listFleetVehicles();
-  const vehicle = vehicles.find((item) => item.id === record.vehicleId);
+function canonicalizeVehicleRecord<T extends { vehicleId: string; vehicle: string; plate: string; driver?: string }>(
+  record: T,
+  vehiclesById: Map<string, Vehicle>,
+): T {
+  const vehicle = vehiclesById.get(record.vehicleId);
   return vehicle
     ? {
         ...record,
@@ -81,20 +84,50 @@ function canonicalizeVehicleRecord<T extends { vehicleId: string; vehicle: strin
     : record;
 }
 
+function getReportLocationInput(location: string, lat: number, lng: number): ResolvedLocationInput {
+  return {
+    locationText: location,
+    latitude: lat,
+    longitude: lng,
+  };
+}
+
+function getRecordLocationKey<T extends { id: string }>(record: T) {
+  return record.id;
+}
+
+function getRecordLocationInput<T extends { location: string; lat: number; lng: number }>(record: T) {
+  return getReportLocationInput(record.location, record.lat, record.lng);
+}
+
+function getTripLocationKey<T extends { key: string }>(record: T) {
+  return record.key;
+}
+
 type Props = {
   selectedVehicle: string;
   dateRange: string;
   customStart: string;
   customEnd: string;
+  vehicles: Vehicle[];
   onMapView?: (lat: number, lng: number, label: string) => void;
 };
 
-export function OverspeedReport({ selectedVehicle, dateRange, customStart, customEnd, onMapView }: Props) {
+export function OverspeedReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles, onMapView }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? overspeedRecords : overspeedRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
+  const locationLabels = useResolvedLocationLabels(filtered, {
+    getKey: getRecordLocationKey,
+    getInput: getRecordLocationInput,
+    fallback: 'Location unavailable',
+  });
 
   if (filtered.length === 0) {
     return (
@@ -141,11 +174,11 @@ export function OverspeedReport({ selectedVehicle, dateRange, customStart, custo
               </div>
               <p className="text-[10px] leading-snug text-slate-400 mt-1.5 flex items-start gap-1">
                 <i className="ph ph-map-pin text-slate-300 dark:text-slate-500 mt-0.5" />
-                <span className="min-w-0 break-words">{r.location}</span>
+                <span className="min-w-0 break-words">{locationLabels[r.id] ?? r.location}</span>
               </p>
             </div>
             <button
-              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Overspeed · ${r.location}`)}
+              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Overspeed · ${locationLabels[r.id] ?? r.location}`)}
               className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0 w-10 min-h-[58px] px-1 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/40 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 hover:shadow-md transition-all duration-200 active:scale-95"
             >
               <i className="ph ph-map-pin-area text-sm" />
@@ -158,12 +191,21 @@ export function OverspeedReport({ selectedVehicle, dateRange, customStart, custo
   );
 }
 
-export function StoppageReport({ selectedVehicle, dateRange, customStart, customEnd, onMapView }: Props) {
+export function StoppageReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles, onMapView }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? stoppageRecords : stoppageRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
+  const locationLabels = useResolvedLocationLabels(filtered, {
+    getKey: getRecordLocationKey,
+    getInput: getRecordLocationInput,
+    fallback: 'Location unavailable',
+  });
 
   if (filtered.length === 0) {
     return (
@@ -215,11 +257,11 @@ export function StoppageReport({ selectedVehicle, dateRange, customStart, custom
               </div>
               <p className="text-[10px] leading-snug text-slate-400 mt-1.5 flex items-start gap-1">
                 <i className="ph ph-map-pin text-slate-300 dark:text-slate-500 mt-0.5" />
-                <span className="min-w-0 break-words">{r.location}</span>
+                <span className="min-w-0 break-words">{locationLabels[r.id] ?? r.location}</span>
               </p>
             </div>
             <button
-              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Stoppage · ${r.location}`)}
+              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Stoppage · ${locationLabels[r.id] ?? r.location}`)}
               className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0 w-9 min-h-[54px] px-0.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/40 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 hover:shadow-md transition-all duration-200 active:scale-95"
             >
               <i className="ph ph-map-pin-area text-sm" />
@@ -232,12 +274,29 @@ export function StoppageReport({ selectedVehicle, dateRange, customStart, custom
   );
 }
 
-export function TripSummaryReport({ selectedVehicle, dateRange, customStart, customEnd }: Props) {
+export function TripSummaryReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? tripSummaryRecords : tripSummaryRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
+  const tripLocationItems = useMemo(() => (
+    filtered.flatMap((record) => ([
+      { key: `${record.id}-start`, locationText: record.startLocation },
+      { key: `${record.id}-end`, locationText: record.endLocation },
+    ]))
+  ), [filtered]);
+  const tripLocationLabels = useResolvedLocationLabels(tripLocationItems, {
+    getKey: getTripLocationKey,
+    getInput: (item) => ({
+      locationText: item.locationText,
+    }),
+    fallback: 'Location unavailable',
+  });
 
   const totalDistance = filtered.reduce((s, r) => s + r.distance, 0);
   const totalFuel = filtered.reduce((s, r) => s + r.fuelUsed, 0);
@@ -277,9 +336,9 @@ export function TripSummaryReport({ selectedVehicle, dateRange, customStart, cus
             </div>
           </div>
           <div className="flex items-center gap-1 text-caption-sm text-slate-500 dark:text-slate-400 mb-3">
-            <span className="truncate max-w-[120px]">{r.startLocation}</span>
+            <span className="truncate max-w-[120px]">{tripLocationLabels[`${r.id}-start`] ?? r.startLocation}</span>
             <i className="ph ph-arrow-right text-slate-300 dark:text-slate-600 flex-shrink-0" />
-            <span className="truncate max-w-[120px]">{r.endLocation}</span>
+            <span className="truncate max-w-[120px]">{tripLocationLabels[`${r.id}-end`] ?? r.endLocation}</span>
           </div>
           <div className="grid grid-cols-4 gap-2">
             <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg px-2 py-1.5 text-center">
@@ -305,12 +364,16 @@ export function TripSummaryReport({ selectedVehicle, dateRange, customStart, cus
   );
 }
 
-export function GeneralReport({ selectedVehicle, dateRange, customStart, customEnd }: Props) {
+export function GeneralReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? generalReportRecords : generalReportRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
 
   if (filtered.length === 0) {
     return (
@@ -327,7 +390,7 @@ export function GeneralReport({ selectedVehicle, dateRange, customStart, customE
     <div className="px-4 mt-3 space-y-2.5">
       <div className="flex items-center justify-between mb-1 px-1">
         <h3 className="text-body font-semibold text-slate-700 dark:text-slate-200">General Fleet Report</h3>
-        <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filtered.length} vehicles</span>
+        <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filtered.length} units</span>
       </div>
       {filtered.map((r) => (
         <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl p-3 border border-slate-200/60 dark:border-slate-700 shadow-[0_4px_18px_rgba(0,0,0,0.06)] dark:shadow-none hover:shadow-[0_8px_28px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 transition-all duration-300">
@@ -386,12 +449,16 @@ export function GeneralReport({ selectedVehicle, dateRange, customStart, customE
   );
 }
 
-export function ACReport({ selectedVehicle, dateRange, customStart, customEnd }: Props) {
+export function ACReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? acRecords : acRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
 
   if (filtered.length === 0) {
     return (
@@ -408,7 +475,7 @@ export function ACReport({ selectedVehicle, dateRange, customStart, customEnd }:
     <div className="px-5 mt-4 space-y-3">
       <div className="flex items-center justify-between mb-1 px-1">
         <h3 className="text-body font-semibold text-slate-700 dark:text-slate-200">AC Usage Report</h3>
-        <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filtered.length} vehicles</span>
+        <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filtered.length} units</span>
       </div>
       {filtered.map((r) => (
         <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-700 shadow-[0_4px_20px_rgba(0,0,0,0.07)] dark:shadow-none hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300">
@@ -451,12 +518,21 @@ export function ACReport({ selectedVehicle, dateRange, customStart, customEnd }:
   );
 }
 
-export function FuelFillingReport({ selectedVehicle, dateRange, customStart, customEnd }: Props) {
+export function FuelFillingReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles, onMapView }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? fuelFillingRecords : fuelFillingRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
+  const locationLabels = useResolvedLocationLabels(filtered, {
+    getKey: getRecordLocationKey,
+    getInput: getRecordLocationInput,
+    fallback: 'Location unavailable',
+  });
 
   const totalLitres = filtered.reduce((s, r) => s + r.quantity, 0);
   const totalCost = filtered.reduce((s, r) => s + r.cost, 0);
@@ -481,38 +557,70 @@ export function FuelFillingReport({ selectedVehicle, dateRange, customStart, cus
         <span className="text-caption-sm text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{filtered.length} fills · {totalLitres.toFixed(1)}L · ₱{totalCost.toLocaleString()}</span>
       </div>
       {filtered.map((r) => (
-        <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-slate-200/60 dark:border-slate-700 shadow-[0_4px_20px_rgba(0,0,0,0.07)] dark:shadow-none hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <div className="w-10 h-10 flex flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/60 dark:from-emerald-500/20 dark:to-emerald-500/10 text-emerald-600 dark:text-emerald-400 shadow-sm ring-1 ring-emerald-200/40 dark:ring-emerald-500/30">
-                <i className="ph ph-gas-can text-sm" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <p className="truncate text-caption font-semibold text-slate-800 dark:text-slate-100">{r.vehicle}</p>
-                  <span className={`flex-shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-lg ${fuelTypeLabel(r.fuelType)}`}>{r.fuelType}</span>
+        <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl p-3 border border-slate-200/60 dark:border-slate-700 shadow-[0_4px_20px_rgba(0,0,0,0.07)] dark:shadow-none hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300">
+          <div className="flex items-start gap-2.5">
+            <div className="w-9 h-9 flex flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-50 to-emerald-100/60 dark:from-emerald-500/20 dark:to-emerald-500/10 text-emerald-600 dark:text-emerald-400 shadow-sm ring-1 ring-emerald-200/40 dark:ring-emerald-500/30">
+              <i className="ph ph-gas-can text-[13px]" />
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
+                    <p className="truncate text-[13px] font-semibold leading-tight text-slate-800 dark:text-slate-100">{r.vehicle}</p>
+                    <span className={`ml-1 flex-shrink-0 text-[9px] font-medium px-1 py-[1px] rounded-[3px] ${fuelTypeLabel(r.fuelType)}`}>{r.fuelType}</span>
+                  </div>
+                  <p className="truncate text-[9.5px] leading-tight text-slate-400">{r.date} · {r.time}</p>
                 </div>
-                <p className="truncate text-[10px] text-slate-400">{r.date} · {r.time}</p>
+
+                <div className="flex-shrink-0 text-right">
+                  <p className="text-[13px] font-bold leading-tight text-slate-800 dark:text-slate-100">₱{r.cost.toLocaleString()}</p>
+                  <p className="text-[9.5px] leading-tight text-slate-400">₱{r.pricePerLiter}/L</p>
+                </div>
+              </div>
+
+              <p className="mt-1 text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+                {r.station}
+              </p>
+
+              <div className="mt-1 flex items-center gap-2 rounded-md bg-slate-50 px-2 py-1 text-[8px] sm:text-[9px] leading-tight text-slate-500 dark:bg-slate-800 dark:text-slate-400 whitespace-nowrap overflow-hidden">
+                <span className="flex items-center gap-0.5 flex-shrink-0">
+                  <span className="text-slate-400">From</span>
+                  <span className="font-semibold text-[9px] sm:text-[10px] text-slate-800 dark:text-slate-100">{r.fromLevelLiters?.toFixed(1) ?? '--'}L</span>
+                </span>
+                <span className="flex items-center gap-0.5 flex-shrink-0">
+                  <span className="text-slate-400">To</span>
+                  <span className="font-semibold text-[9px] sm:text-[10px] text-slate-800 dark:text-slate-100">{r.toLevelLiters?.toFixed(1) ?? '--'}L</span>
+                </span>
+                <span className="flex items-center gap-0.5 min-w-0">
+                  <span className="text-slate-400 flex-shrink-0">Duration</span>
+                  <span className="font-semibold text-[9px] sm:text-[10px] text-slate-800 dark:text-slate-100 flex-shrink-0">{r.startTime && r.endTime ? `${r.startTime.replace(' ', '')}-${r.endTime.replace(' ', '')}` : '--'}</span>
+                </span>
+              </div>
+
+              <div className="mt-[5px] grid grid-cols-[minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.2fr)] gap-1">
+                <div className="min-w-0 rounded-lg bg-slate-50 px-1 py-1 text-center dark:bg-slate-800/50">
+                  <p className="truncate text-[8px] leading-none text-slate-400">Qty</p>
+                  <p className="mt-0.5 truncate text-[11px] leading-tight font-semibold text-slate-800 dark:text-slate-100">{r.quantity}L</p>
+                </div>
+                <div className="min-w-0 rounded-lg bg-slate-50 px-1 py-1 text-center dark:bg-slate-800/50">
+                  <p className="truncate text-[8px] leading-none text-slate-400" title="Odometer">Odom</p>
+                  <p className="mt-0.5 truncate text-[11px] leading-tight font-semibold text-slate-800 dark:text-slate-100">{r.odometerReading.toLocaleString()}</p>
+                </div>
+                <div className="min-w-0 rounded-lg bg-slate-50 px-1 py-1 text-center dark:bg-slate-800/50">
+                  <p className="truncate text-[8px] leading-none text-slate-400">Loc</p>
+                  <p className="mt-0.5 truncate text-[11px] leading-tight font-semibold text-slate-800 dark:text-slate-100">{locationLabels[r.id] ?? r.location}</p>
+                </div>
               </div>
             </div>
-            <div className="flex-shrink-0 text-right">
-              <p className="text-caption font-bold text-slate-800 dark:text-slate-100">₱{r.cost.toLocaleString()}</p>
-              <p className="text-[10px] text-slate-400">₱{r.pricePerLiter}/L</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-[minmax(0,0.78fr)_minmax(0,0.78fr)_minmax(0,1.9fr)] gap-1.5">
-            <div className="min-w-0 bg-slate-50 dark:bg-slate-800/50 rounded-lg px-1 py-1 text-center">
-              <p className="truncate text-[8.5px] leading-none text-slate-400">Quantity</p>
-              <p className="mt-0.5 truncate text-[12px] leading-tight font-semibold text-slate-800 dark:text-slate-100">{r.quantity}L</p>
-            </div>
-            <div className="min-w-0 bg-slate-50 dark:bg-slate-800/50 rounded-lg px-1 py-1 text-center">
-              <p className="truncate text-[8.5px] leading-none text-slate-400" title="Odometer">Odom.</p>
-              <p className="mt-0.5 truncate text-[12px] leading-tight font-semibold text-slate-800 dark:text-slate-100">{r.odometerReading.toLocaleString()}</p>
-            </div>
-            <div className="min-w-0 bg-slate-50 dark:bg-slate-800/50 rounded-lg px-1.5 py-1 text-center">
-              <p className="truncate text-[8.5px] leading-none text-slate-400">Station</p>
-              <p className="mt-0.5 truncate text-[12px] leading-tight font-semibold text-slate-800 dark:text-slate-100">{r.station}</p>
-            </div>
+
+            <button
+              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Fuel Filling · ${locationLabels[r.id] ?? r.location}`)}
+              className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0 w-10 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/40 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 hover:shadow-md transition-all duration-200 active:scale-95"
+            >
+              <i className="ph ph-map-pin-area text-[13px]" />
+              <span className="text-[9px] font-semibold leading-none">view</span>
+            </button>
           </div>
         </div>
       ))}
@@ -520,12 +628,21 @@ export function FuelFillingReport({ selectedVehicle, dateRange, customStart, cus
   );
 }
 
-export function IdleReport({ selectedVehicle, dateRange, customStart, customEnd, onMapView }: Props) {
+export function IdleReport({ selectedVehicle, dateRange, customStart, customEnd, vehicles, onMapView }: Props) {
+  const vehiclesById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle] as const)),
+    [vehicles],
+  );
   const filtered = useMemo(() => {
     let items = selectedVehicle === 'all' ? idleRecords : idleRecords.filter((r) => r.vehicleId === selectedVehicle);
     items = items.filter((r) => isDateInRange(r.date, dateRange, customStart, customEnd));
-    return items.map(canonicalizeVehicleRecord).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedVehicle, dateRange, customStart, customEnd]);
+    return items.map((record) => canonicalizeVehicleRecord(record, vehiclesById)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedVehicle, dateRange, customStart, customEnd, vehiclesById]);
+  const locationLabels = useResolvedLocationLabels(filtered, {
+    getKey: getRecordLocationKey,
+    getInput: getRecordLocationInput,
+    fallback: 'Location unavailable',
+  });
 
   const totalFuelWasted = filtered.reduce((s, r) => s + r.fuelWasted, 0);
 
@@ -578,11 +695,11 @@ export function IdleReport({ selectedVehicle, dateRange, customStart, customEnd,
               </div>
               <p className="text-[10px] leading-snug text-slate-400 mt-1.5 flex items-start gap-1">
                 <i className="ph ph-map-pin text-slate-300 dark:text-slate-500 mt-0.5" />
-                <span className="min-w-0 break-words">{r.location}</span>
+                <span className="min-w-0 break-words">{locationLabels[r.id] ?? r.location}</span>
               </p>
             </div>
             <button
-              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Idle · ${r.location}`)}
+              onClick={() => onMapView?.(r.lat, r.lng, `${r.vehicle} · Idle · ${locationLabels[r.id] ?? r.location}`)}
               className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0 w-9 min-h-[54px] px-0.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/40 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 hover:shadow-md transition-all duration-200 active:scale-95"
             >
               <i className="ph ph-map-pin-area text-sm" />

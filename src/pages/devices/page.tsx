@@ -9,17 +9,32 @@ import InternalPageHeader from '@/components/InternalPageHeader';
 import { getVehicleRuntimeStatus } from '@/utils/vehicleStatus';
 import { getVehicleColorClass } from '@/utils/vehicleIconColor';
 import DeviceAssetIcon, { hasDeviceAssetIcon } from '@/components/feature/DeviceAssetIcon';
-import { listFleetVehicles, saveFleetVehicles, updateFleetVehicle, useFleetVehicles } from '@/mocks/fleetStore';
+import { saveFleetVehicles, updateFleetVehicle, useFleetVehicles } from '@/mocks/fleetStore';
 import AddDeviceWizard from '@/pages/account/components/AddDeviceWizard';
 import type { Device } from '@/mocks/accountData';
-import { listDrivers } from '@/mocks/driversStore';
+import { useDrivers } from '@/mocks/driversStore';
 
-function getCategory(variant: VehicleIconVariant): 'personal' | 'two-wheeler' | 'car' | 'commercial' | 'heavy' {
-  if (['person_tracker', 'baby_tracker', 'pet_tracker', 'asset_tracker'].includes(variant)) return 'personal';
-  if (['bike', 'motorcycle', 'sport_bike', 'ebike', 'scooter', 'moped'].includes(variant)) return 'two-wheeler';
-  if (['hatchback', 'sedan', 'coupe', 'wagon', 'suv', 'jeep'].includes(variant)) return 'car';
-  if (['van', 'minivan', 'pickup', 'box_truck', 'ambulance'].includes(variant)) return 'commercial';
+function getSafeVehicleType(variant: Vehicle['vehicleType'] | null | undefined): VehicleIconVariant {
+  return variant || 'sedan';
+}
+
+function getCategory(variant: VehicleIconVariant | null | undefined): 'personal' | 'two-wheeler' | 'car' | 'commercial' | 'heavy' {
+  const safeVariant = getSafeVehicleType(variant);
+  if (['person_tracker', 'baby_tracker', 'pet_tracker', 'asset_tracker'].includes(safeVariant)) return 'personal';
+  if (['bike', 'motorcycle', 'sport_bike', 'ebike', 'scooter', 'moped'].includes(safeVariant)) return 'two-wheeler';
+  if (['hatchback', 'sedan', 'coupe', 'wagon', 'suv', 'jeep'].includes(safeVariant)) return 'car';
+  if (['van', 'minivan', 'pickup', 'box_truck', 'ambulance'].includes(safeVariant)) return 'commercial';
   return 'heavy';
+}
+
+function formatDeviceOdometer(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0 km';
+  return `${numeric.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+}
+
+function formatDeviceModelLine(vehicle: Vehicle) {
+  return [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Device';
 }
 
 export default function DevicesPage() {
@@ -28,6 +43,7 @@ export default function DevicesPage() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [showAddDeviceWizard, setShowAddDeviceWizard] = useState(false);
   const deviceList = useFleetVehicles();
+  const drivers = useDrivers();
 
   const handleSave = (updated: Vehicle) => {
     updateFleetVehicle(updated);
@@ -35,8 +51,8 @@ export default function DevicesPage() {
   };
 
   const handleDeviceAdded = (newDevice: Device) => {
-    const currentVehicles = listFleetVehicles();
-    const activeDriver = listDrivers().find((driver) => driver.status === 'Active');
+    const currentVehicles = deviceList;
+    const activeDriver = drivers.find((driver) => driver.status === 'Active');
     const newVehicle: Vehicle = {
       id: `v${Date.now()}`,
       name: newDevice.vehicleName.trim() || newDevice.name,
@@ -117,6 +133,17 @@ export default function DevicesPage() {
 
       {/* Device List by Category */}
       <div className="px-5 mt-3 space-y-4">
+        {deviceList.length === 0 && (
+          <div className="card-surface rounded-xl border border-surface-border px-4 py-8 text-center">
+            <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <i className="ph ph-devices text-xl" />
+            </div>
+            <p className="mt-3 text-body font-semibold text-text-primary">No devices loaded</p>
+            <p className="mx-auto mt-1 max-w-[260px] text-caption-sm leading-relaxed text-text-secondary">
+              Live device data will appear here after the fleet snapshot loads.
+            </p>
+          </div>
+        )}
         {(['personal', 'two-wheeler', 'car', 'commercial', 'heavy'] as const).map((cat) => {
           const catVehicles = groupedByCategory[cat];
           if (!catVehicles || catVehicles.length === 0) return null;
@@ -131,37 +158,50 @@ export default function DevicesPage() {
               </div>
               <div className="space-y-2">
                 {catVehicles.map((vehicle) => (
-                  <div
-                    key={vehicle.id}
-                    className="card-surface rounded-xl p-3 border border-surface-border flex items-center gap-3"
-                  >
-                    <div className="device-list-vehicle-icon flex h-20 w-20 items-center justify-center" aria-hidden="true">
-                      {hasDeviceAssetIcon(vehicle.vehicleType) ? (
-                        <DeviceAssetIcon
-                          variant={vehicle.vehicleType}
-                          size="md"
-                          status={getVehicleRuntimeStatus(vehicle)}
-                        />
-                      ) : (
-                        <span className={`vehicles-reference-icon ${getVehicleColorClass(vehicle, getVehicleRuntimeStatus(vehicle))}`} />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-body font-semibold text-text-primary">{vehicle.name}</h4>
-                      <p className="text-caption-sm text-text-secondary">
-                        {vehicle.plateNumber} · {vehicle.odometer.toLocaleString()} km
-                      </p>
-                      <p className="text-[10px] text-text-tertiary mt-0.5">
-                        {vehicle.make} {vehicle.model} ({vehicle.year})
-                      </p>
-                    </div>
-                    {can('mutate') && <button
-                      onClick={() => setEditingVehicle(vehicle)}
-                      className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-elevated border border-surface-border text-text-secondary hover:text-primary hover:border-primary/30 transition-all btn-press whitespace-nowrap"
-                    >
-                      <i className="ph ph-gear text-lg" />
-                    </button>}
-                  </div>
+                  (() => {
+                    const runtimeStatus = getVehicleRuntimeStatus(vehicle);
+                    const vehicleType = getSafeVehicleType(vehicle.vehicleType);
+
+                    return (
+                      <div
+                        key={vehicle.id}
+                        className="card-surface rounded-xl p-3 border border-surface-border flex items-center gap-3"
+                      >
+                        <div className="relative device-list-vehicle-icon flex h-20 w-20 items-center justify-center" aria-hidden="true">
+                          {hasDeviceAssetIcon(vehicleType) ? (
+                            <DeviceAssetIcon
+                              variant={vehicleType}
+                              size="md"
+                              status={runtimeStatus}
+                            />
+                          ) : (
+                            <span className={`vehicles-reference-icon ${getVehicleColorClass(vehicle, runtimeStatus)}`} />
+                          )}
+                          {vehicle.hasDashcam && (
+                            <span className="absolute -right-1 -top-1 inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-emerald-500">
+                              <i className="ph ph-camera text-[10px]" />
+                              Cam
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-body font-semibold text-text-primary">{vehicle.name || 'Unnamed device'}</h4>
+                          <p className="text-caption-sm text-text-secondary">
+                            {vehicle.plateNumber || 'No plate'} · {formatDeviceOdometer(vehicle.odometer)}
+                          </p>
+                          <p className="text-[10px] text-text-tertiary mt-0.5">
+                            {formatDeviceModelLine(vehicle)} ({vehicle.year || 'N/A'})
+                          </p>
+                        </div>
+                        {can('mutate') && <button
+                          onClick={() => setEditingVehicle(vehicle)}
+                          className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-elevated border border-surface-border text-text-secondary hover:text-primary hover:border-primary/30 transition-all btn-press whitespace-nowrap"
+                        >
+                          <i className="ph ph-gear text-lg" />
+                        </button>}
+                      </div>
+                    );
+                  })()
                 ))}
               </div>
             </div>

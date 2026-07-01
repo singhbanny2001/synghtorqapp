@@ -47,7 +47,7 @@ export default function DriverCard({ data }: Props) {
     <div className="w-full">
       <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h3 className="text-[15px] font-black leading-tight text-slate-950 dark:text-slate-100">Driver</h3>
+          <h3 className="text-[15px] font-black leading-tight text-slate-950 dark:text-slate-100">Employee</h3>
           <button
             type="button"
             onClick={() => setShowManageSheet(true)}
@@ -57,7 +57,7 @@ export default function DriverCard({ data }: Props) {
           </button>
         </div>
 
-        {/* Driver info */}
+        {/* Employee info */}
         <div className="flex items-center gap-2.5">
           <div className="h-11 w-11 flex-shrink-0 overflow-hidden rounded-full border-2 border-slate-200 dark:border-slate-800">
             {assignedDriver && data.driverPhoto ? (
@@ -70,14 +70,14 @@ export default function DriverCard({ data }: Props) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="truncate text-[14px] font-bold leading-tight text-slate-950 dark:text-slate-100">{assignedDriver?.name ?? 'Unassigned'}</p>
-            <p className="mt-0.5 truncate text-[11px] leading-tight text-slate-500 dark:text-slate-400">{assignedDriver?.employeeId || 'No driver assigned'}</p>
+            <p className="mt-0.5 truncate text-[11px] leading-tight text-slate-500 dark:text-slate-400">{assignedDriver?.employeeId || 'No employee assigned'}</p>
             {assignedDriver ? (
               <>
                 <p className="mt-1 truncate text-[11px] font-semibold leading-tight text-slate-600 dark:text-slate-300">Contact: {driverPhone}</p>
                 <p className="mt-0.5 truncate text-[11px] font-semibold leading-tight text-slate-500 dark:text-slate-400">Mobile: {driverMobileNumber}</p>
               </>
             ) : (
-              <p className="mt-1 truncate text-[11px] font-semibold leading-tight text-slate-400 dark:text-slate-500">Assign an available driver from the Manage button.</p>
+              <p className="mt-1 truncate text-[11px] font-semibold leading-tight text-slate-400 dark:text-slate-500">Assign an available employee from the Manage button.</p>
             )}
           </div>
           {assignedDriver && (
@@ -102,8 +102,8 @@ export default function DriverCard({ data }: Props) {
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">Manage Driver</h3>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Assign or unassign driver for this vehicle.</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">Manage Employee</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Assign or unassign employee for this vehicle.</p>
               </div>
               <button
                 type="button"
@@ -120,7 +120,7 @@ export default function DriverCard({ data }: Props) {
                 onClick={handleUnassign}
                 className="mt-4 flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
               >
-                Unassign Current Driver
+                Unassign Current Employee
               </button>
             )}
 
@@ -152,10 +152,10 @@ export default function DriverCard({ data }: Props) {
               ))}
               {availableDrivers.length === 0 && (
                 <p className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-3 text-center text-sm font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                  No available drivers to assign.
-                </p>
-              )}
-            </div>
+                No available employees to assign.
+              </p>
+            )}
+          </div>
           </div>
         </div>
       )}

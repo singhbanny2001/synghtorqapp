@@ -108,10 +108,10 @@ export default function EditDeviceModal({ device, isOpen, onClose, onSave }: Edi
             </div>
           </div>
 
-          {/* Vehicle Name */}
+          {/* Unit Name */}
           <div>
             <label className="text-caption-sm font-medium text-text-secondary mb-1.5 block">
-              Vehicle Name
+              Unit Name
             </label>
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center">

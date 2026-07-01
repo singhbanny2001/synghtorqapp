@@ -8,7 +8,10 @@ interface Props {
 
 export default function FuelCard({ data, onRefillClick }: Props) {
   const { can } = useAuth();
-  const fuelPct = Math.round((data.fuelLevel / data.fuelCapacity) * 100);
+  if (!data.hasFuelSensor || data.fuelLevel == null) return null;
+
+  const fuelLevel = data.fuelLevel;
+  const fuelPct = data.fuelCapacity > 0 ? Math.round((fuelLevel / data.fuelCapacity) * 100) : 0;
   const barColor = fuelPct > 30 ? 'bg-blue-600' : fuelPct > 15 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
@@ -26,7 +29,7 @@ export default function FuelCard({ data, onRefillClick }: Props) {
 
         <div className="mb-2">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-[30px] font-black leading-none text-slate-950 dark:text-slate-100">{data.fuelLevel}</span>
+            <span className="text-[30px] font-black leading-none text-slate-950 dark:text-slate-100">{fuelLevel}</span>
             <span className="text-[14px] font-medium text-slate-600 dark:text-slate-300">L / {data.fuelCapacity}L</span>
           </div>
         </div>

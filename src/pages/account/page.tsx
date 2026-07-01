@@ -1,19 +1,32 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { accounts as initialAccounts, devices as initialDevices } from '@/mocks/accountData';
+import { devices as initialDevices } from '@/mocks/accountData';
 import type { Account, Device } from '@/mocks/accountData';
-import { useAccount } from '@/mocks/AccountContext';
 import AddDeviceWizard from './components/AddDeviceWizard';
 import EditDeviceModal from './components/EditDeviceModal';
 import { getRoleLabel, useAuth, type UserRole } from '@/context/AuthContext';
+import { useLiveFleetSnapshot } from '@/utils/liveFleet';
+
+function buildAccountFromUser(user: ReturnType<typeof useAuth>['user']): Account {
+  return {
+    id: user?.id || 'current-user',
+    name: user?.name || 'Account',
+    role: user?.role || 'viewer',
+    email: user?.email || '',
+    phone: user?.companyName || '',
+    avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'A')}&background=0084FF&color=fff`,
+    isActive: true,
+  };
+}
 
 export default function Account() {
   const navigate = useNavigate();
-  const { can, logout } = useAuth();
-  const { activeAccount: globalActiveAccount } = useAccount();
-  const [accountList, setAccountList] = useState<Account[]>(initialAccounts);
-  const [activeAccountId, setActiveAccountId] = useState(globalActiveAccount?.id || initialAccounts[0]?.id || '');
-  const [deviceList, setDeviceList] = useState<Device[]>(initialDevices);
+  const { can, logout, user: authUser } = useAuth();
+  const liveSnapshot = useLiveFleetSnapshot();
+  const currentAccount = buildAccountFromUser(authUser);
+  const [accountList, setAccountList] = useState<Account[]>([currentAccount]);
+  const [activeAccountId, setActiveAccountId] = useState(currentAccount.id);
+  const [deviceList, setDeviceList] = useState<Device[]>(() => liveSnapshot?.devices ?? initialDevices);
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [renewDevice, setRenewDevice] = useState<Device | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -50,12 +63,16 @@ export default function Account() {
   const [otpSent, setOtpSent] = useState(false);
   const [secureError, setSecureError] = useState('');
 
-  // Sync with global AccountContext when the header dropdown changes
   useEffect(() => {
-    if (globalActiveAccount?.id) {
-      setActiveAccountId(globalActiveAccount.id);
+    setAccountList([currentAccount]);
+    setActiveAccountId(currentAccount.id);
+  }, [currentAccount]);
+
+  useEffect(() => {
+    if (liveSnapshot?.devices) {
+      setDeviceList(liveSnapshot.devices);
     }
-  }, [globalActiveAccount?.id]);
+  }, [liveSnapshot]);
 
   const activeAccount = accountList.find((a) => a.id === activeAccountId) || accountList[0];
   const openRenewModal = (device: Device) => {
@@ -650,7 +667,7 @@ export default function Account() {
               <div>
                 <label className="text-sm font-medium text-slate-700 mb-1.5 block">Role</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['manager', 'supervisor', 'viewer'] as const).map((role) => (
+                  {(['company_owner', 'manager', 'supervisor', 'viewer'] as const).map((role) => (
                     <button
                       key={role}
                       onClick={() => setNewAccountRole(role)}
@@ -661,6 +678,7 @@ export default function Account() {
                       }`}
                     >
                       <i className={
+                        role === 'company_owner' ? 'ph ph-crown-simple' :
                         role === 'manager' ? 'ph ph-shield-star' :
                         role === 'supervisor' ? 'ph ph-user-gear' : 'ph ph-eye'
                       } />

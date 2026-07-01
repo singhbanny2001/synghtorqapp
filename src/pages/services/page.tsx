@@ -229,6 +229,11 @@ export default function Services() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
+  useEffect(() => {
+    if (vehicles.length === 0) return;
+    void refreshReminders();
+  }, [vehicles]);
+
   const filtered = useMemo(() => {
     let items = activeCategory === 'All'
       ? servicesData
@@ -259,7 +264,7 @@ export default function Services() {
       items = items.filter((h) => isDateInRange(h.date, dateRange, customStart, customEnd));
     }
     return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [activeCategory, selectedVehicle, dateRange, customStart, customEnd]);
+  }, [activeCategory, selectedVehicle, dateRange, customStart, customEnd, vehicles]);
 
   // Dynamic stats based on filtered data
   const dynamicStats = useMemo(() => {
@@ -529,7 +534,7 @@ export default function Services() {
           </div>
         </div>
 
-        {/* Vehicle Selector */}
+        {/* Unit Selector */}
         <div className="relative mt-1.5">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center">
             <i className="ph ph-car text-slate-400" />
@@ -539,7 +544,7 @@ export default function Services() {
             onChange={(e) => setSelectedVehicle(e.target.value)}
             className="w-full rounded-lg border border-slate-300 bg-white py-1.5 pl-9 pr-9 text-[11px] font-semibold text-slate-700 outline-none shadow-sm appearance-none cursor-pointer dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
           >
-            <option value="all">All Vehicles</option>
+            <option value="all">All Units</option>
             {vehicles.map((v) => (
               <option key={v.id} value={v.id}>{v.name} · {v.plateNumber}</option>
             ))}
@@ -799,7 +804,7 @@ export default function Services() {
 
             <div className="min-h-0 flex-1 space-y-1.5 overflow-hidden px-3 py-1.5">
               <label className="block">
-                <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide text-text-secondary">Vehicle</span>
+                <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide text-text-secondary">Unit</span>
                 <select
                   value={reminderForm.vehicleId}
                   onChange={(event) => {

@@ -124,41 +124,15 @@ export const servicesData: ServiceItem[] = [
   },
 ];
 
-export const serviceHistory: ServiceHistoryItem[] = [
-  { id: 'h1', vehicleName: 'TK-101', plate: 'FL-2024-01', type: 'Oil Change', title: 'Routine Oil Change', date: '2026-03-15', cost: 115, odometer: 8200, provider: 'AutoCare Plus', notes: 'Full synthetic 5W-30, filter replaced' },
-  { id: 'h2', vehicleName: 'ISABELA 04', plate: 'TK-102', type: 'Tire Rotation', title: 'Tire Rotation & Balance', date: '2026-02-20', cost: 75, odometer: 10500, provider: 'QuickTire NJ', notes: 'All 4 tires rotated, pressure adjusted' },
-  { id: 'h3', vehicleName: 'TK-103', plate: 'FL-2024-03', type: 'Brake Service', title: 'Brake Pad Replacement', date: '2026-01-28', cost: 340, odometer: 5500, provider: 'Brake Masters', notes: 'Front and rear pads replaced, rotors resurfaced' },
-  { id: 'h4', vehicleName: 'TK-104', plate: 'FL-2024-04', type: 'Transmission', title: 'Transmission Flush', date: '2025-08-15', cost: 420, odometer: 8000, provider: 'TransPro Service', notes: 'Full flush, new filter and gasket' },
-  { id: 'h5', vehicleName: 'TK-101', plate: 'FL-2024-01', type: 'Inspection', title: 'Annual Safety Inspection', date: '2025-12-10', cost: 65, odometer: 7500, provider: 'NJ DOT Station', notes: 'Passed all safety checks' },
-  { id: 'h6', vehicleName: 'TK-105', plate: 'FL-2024-05', type: 'Software Update', title: 'Firmware OTA Update', date: '2026-04-20', cost: 0, odometer: 4200, provider: 'Tesla Service', notes: 'Version 2026.14.8 installed' },
-  { id: 'h7', vehicleName: 'TK-106', plate: 'FL-2024-06', type: 'Maintenance', title: '15K Mile Service', date: '2026-03-05', cost: 280, odometer: 8500, provider: 'Rivian Service', notes: 'Cabin filter, brake fluid, inspections' },
-  { id: 'h8', vehicleName: 'ISABELA 04', plate: 'TK-102', type: 'Oil Change', title: 'Routine Oil Change', date: '2025-11-18', cost: 105, odometer: 9800, provider: 'AutoCare Plus', notes: 'Semi-synthetic oil change' },
-];
+export const serviceHistory: ServiceHistoryItem[] = [];
 
-export const vendorsList = [
-  'AutoCare Plus',
-  'Brake Masters',
-  'QuickTire NJ',
-  'TransPro Service',
-  'NJ DOT Station',
-  'Commercial Tire Co',
-  'FleetInsure Pro',
-  'NJ DMV',
-  'Tesla Service Center',
-  'Rivian Service',
-  'Midas Auto',
-  'Express Lube',
-  'Firestone Complete',
-  'Jiffy Lube',
-  'Pep Boys',
-  'Goodyear Auto',
-];
+export const vendorsList: string[] = [];
 
 export const serviceStats = {
-  upcomingCount: 8,
-  dueCount: 2,
-  overdueCount: 2,
-  completedThisMonth: 4,
-  totalEstimatedCost: 3820,
-  overdueCost: 225,
+  upcomingCount: 0,
+  dueCount: 0,
+  overdueCount: 0,
+  completedThisMonth: 0,
+  totalEstimatedCost: 0,
+  overdueCost: 0,
 };

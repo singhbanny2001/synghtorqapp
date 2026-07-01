@@ -1,4 +1,4 @@
-import { vehicles } from './fleetData';
+import { getLiveFleetSnapshotSync } from '@/utils/liveFleet';
 
 export type FuelEventType = 'refill' | 'theft';
 export type FuelEventStatus = 'detected' | 'investigating' | 'confirmed' | 'resolved';
@@ -49,7 +49,7 @@ const SIGNIFICANT_CHANGE_LITERS = 8;
 export const FUEL_EVENTS_STORAGE_KEY = STORAGE_KEY;
 
 function hasFuelSensor(vehicleId: string) {
-  return vehicles.some((vehicle) => vehicle.id === vehicleId && vehicle.hasFuelSensor);
+  return (getLiveFleetSnapshotSync()?.vehicles ?? []).some((vehicle) => vehicle.id === vehicleId && vehicle.hasFuelSensor);
 }
 
 const fuelReadings: FuelReading[] = [
@@ -76,6 +76,7 @@ function formatTime(timestamp: string) {
 }
 
 function detectFuelEvents() {
+  const vehicles = getLiveFleetSnapshotSync()?.vehicles ?? [];
   const byVehicle = fuelReadings.reduce<Record<string, FuelReading[]>>((groups, reading) => {
     groups[reading.vehicleId] = groups[reading.vehicleId] || [];
     groups[reading.vehicleId].push(reading);

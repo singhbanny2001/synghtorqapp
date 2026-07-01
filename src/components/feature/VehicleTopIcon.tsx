@@ -29,8 +29,8 @@ const statusColors: Record<VehicleStatus, string> = {
 /* ──────────── Modern 2026 Fleet Silhouette Palette ──────────── */
 const BODY = 'var(--vehicle-icon-body, #E8ECF0)';
 const BODY_DARK = 'var(--vehicle-icon-body-dark, #D6DCE3)';
-const GLASS = '#B0BAC5';
-const GLASS_DARK = '#9BA6B3';
+const GLASS = '#05070A';
+const GLASS_DARK = '#02040A';
 const WHEEL = '#5A6068';
 const WHEEL_HUB = '#848A92';
 const ROOF = 'var(--vehicle-icon-roof, #DCE1E7)';

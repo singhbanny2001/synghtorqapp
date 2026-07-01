@@ -10,7 +10,7 @@ export default function EngineHealth({ data }: Props) {
 
   const metrics = [
     { label: 'RPM', value: data.rpm, unit: '', bar: 70, color: 'text-blue-400' },
-    { label: 'Engine Temp', value: data.engineTemp, unit: '°C', bar: 60, color: 'text-amber-500' },
+    ...(data.engineTemp == null ? [] : [{ label: 'Engine Temp', value: data.engineTemp, unit: '°C', bar: 60, color: 'text-amber-500' }]),
     { label: 'Battery', value: data.batteryVoltage, unit: 'V', bar: 85, color: 'text-emerald-500' },
     { label: 'Load', value: data.engineLoad, unit: '%', bar: 62, color: 'text-blue-400' },
     { label: 'Hours', value: data.engineHours, unit: 'h', bar: 45, color: 'text-text-primary' },

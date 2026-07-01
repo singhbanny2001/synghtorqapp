@@ -64,6 +64,7 @@ const toneFilters = {
   locked: 'grayscale(1) brightness(0.72) contrast(1.05)',
 } as const;
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function hasDeviceAssetIcon(variant: VehicleIconVariant) {
   return Boolean(iconPaths[variant]);
 }

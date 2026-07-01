@@ -146,11 +146,10 @@ export default function Expenses() {
   const [confirmedLiters, setConfirmedLiters] = useState('');
   const [pricePerLiter, setPricePerLiter] = useState('');
   const [notes, setNotes] = useState('');
-  const fuelSensorVehicles = useMemo(() => vehicles.filter((vehicle) => vehicle.hasFuelSensor), []);
-  const vehicleOptions = activeCategory === 'Fuel' ? fuelSensorVehicles : vehicles;
+  const vehicleOptions = vehicles;
   const scopedVehicle = useMemo(
     () => (isVehicleScopedFuelView ? vehicles.find((vehicle) => vehicle.id === selectedVehicle) ?? null : null),
-    [isVehicleScopedFuelView, selectedVehicle],
+    [isVehicleScopedFuelView, selectedVehicle, vehicles],
   );
   const fuelTodayReference = useMemo(() => {
     const latestTimestamp = fuelEvents.reduce((latest, event) => {
@@ -167,16 +166,6 @@ export default function Expenses() {
     window.addEventListener('storage', refresh);
     return () => window.removeEventListener('storage', refresh);
   }, []);
-
-  useEffect(() => {
-    if (
-      activeCategory === 'Fuel' &&
-      selectedVehicle !== 'all' &&
-      !fuelSensorVehicles.some((vehicle) => vehicle.id === selectedVehicle)
-    ) {
-      setSelectedVehicle('all');
-    }
-  }, [activeCategory, fuelSensorVehicles, selectedVehicle]);
 
   const selectedEvent = useMemo(
     () => fuelEvents.find((event) => event.id === selectedEventId) || null,
@@ -339,7 +328,7 @@ export default function Expenses() {
         String(event.deltaLiters),
         event.status,
       ]);
-      downloadCSV('Fuel_Events', ['Type', 'Vehicle', 'Plate', 'Date', 'Time', 'Location', 'Liters', 'Status'], rows);
+      downloadCSV('Fuel_Events', ['Type', 'Unit', 'Plate', 'Date', 'Time', 'Location', 'Liters', 'Status'], rows);
       return;
     }
 
@@ -354,7 +343,7 @@ export default function Expenses() {
       expense.vendor,
       expense.status,
     ]);
-    downloadCSV('Expenses', ['Vehicle', 'Plate', 'Category', 'Description', 'Amount', 'Date', 'Receipt', 'Vendor', 'Status'], rows);
+    downloadCSV('Expenses', ['Unit', 'Plate', 'Category', 'Description', 'Amount', 'Date', 'Receipt', 'Vendor', 'Status'], rows);
   };
 
   const handleBack = () => {
@@ -500,7 +489,7 @@ export default function Expenses() {
                   {scopedVehicle?.name ?? selectedVehicle}
                 </p>
                 <p className="text-caption-sm text-text-secondary">
-                  {scopedVehicle?.plateNumber ?? 'Selected vehicle'} · live refill and theft events only
+                  {scopedVehicle?.plateNumber ?? 'Selected unit'} · live refill and theft events only
                 </p>
               </div>
             ) : (
@@ -509,7 +498,7 @@ export default function Expenses() {
                 onChange={(event) => setSelectedVehicle(event.target.value)}
                 className="mt-3 w-full min-w-0 rounded-xl border border-surface-border bg-surface-card px-3 py-3 text-body text-text-primary outline-none"
               >
-                <option value="all">All vehicles with fuel sensors</option>
+                <option value="all">All units with fuel sensors</option>
                 {vehicleOptions.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plateNumber}</option>
                 ))}
@@ -583,7 +572,7 @@ export default function Expenses() {
                 onChange={(event) => setSelectedVehicle(event.target.value)}
                 className="min-w-0 rounded-xl border border-surface-border bg-surface-card px-3 py-3 text-body text-text-primary outline-none"
               >
-                <option value="all">All vehicles</option>
+                <option value="all">All units</option>
                 {vehicleOptions.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.plateNumber}</option>
                 ))}
@@ -663,7 +652,7 @@ export default function Expenses() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setViewMode('transactions')} className="rounded-xl border border-surface-border bg-surface-card py-2 text-caption-sm font-semibold text-text-secondary">Transactions</button>
-              <button className="rounded-xl border border-primary bg-primary/15 py-2 text-caption-sm font-semibold text-primary">By Vehicle</button>
+              <button className="rounded-xl border border-primary bg-primary/15 py-2 text-caption-sm font-semibold text-primary">By Unit</button>
             </div>
             {filteredSummaries.map((vehicle) => (
               <button key={vehicle.vehicleId} onClick={() => navigate(`/vehicle/${vehicle.vehicleId}`)} className="w-full rounded-xl border border-surface-border bg-surface-card p-3 text-left btn-press">
@@ -684,7 +673,7 @@ export default function Expenses() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <button className="rounded-xl border border-primary bg-primary/15 py-2 text-caption-sm font-semibold text-primary">Transactions</button>
-              <button onClick={() => setViewMode('summary')} className="rounded-xl border border-surface-border bg-surface-card py-2 text-caption-sm font-semibold text-text-secondary">By Vehicle</button>
+              <button onClick={() => setViewMode('summary')} className="rounded-xl border border-surface-border bg-surface-card py-2 text-caption-sm font-semibold text-text-secondary">By Unit</button>
             </div>
             <div className="rounded-xl border border-surface-border bg-surface-card p-3">
               <div className="flex items-center justify-between">

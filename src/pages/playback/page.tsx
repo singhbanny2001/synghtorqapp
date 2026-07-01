@@ -1,91 +1,79 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { playbackVehicles, getVehicleEvents, getTrailStats } from '@/mocks/playbackData';
-import type { GPSPoint, PlaybackEvent, EventType } from '@/mocks/playbackData';
+import { fetchPlaybackTrailForRange, getVehicleEvents, getTrailStats, refreshPlaybackVehicles, usePlaybackVehicles } from '@/utils/livePlayback';
+import type { GPSPoint, PlaybackEvent, EventType, PlaybackVehicle } from '@/utils/livePlayback';
 import { downloadCSV } from '@/utils/exportUtils';
 import InternalPageHeader from '@/components/InternalPageHeader';
+import { useTheme } from '@/context/ThemeContext';
+import { getVehicleColorClass } from '@/utils/vehicleIconColor';
+import { useResolvedLocationLabels } from '@/utils/useResolvedLocationLabels';
 
 const periods = ['Today', 'Yesterday', 'Last 7 Days', 'Last 30 Days', 'This Month', 'Last Month', 'Custom'];
+const COORDINATE_PATTERN = /^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$/;
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
+function dateOnly(value: Date, timeZone?: string | null) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timeZone || undefined,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const map = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
-function varyTrailForDay(trail: GPSPoint[], daysOffset: number, dayIndex = 0): GPSPoint[] {
-  const seed = Math.abs(daysOffset) + dayIndex + 1;
-  const speedMultiplier = 0.76 + (seed % 7) * 0.06;
-  const latShift = (((daysOffset % 5) - 2) * 0.0035) + dayIndex * 0.00035;
-  const lngShift = ((((daysOffset + 2) % 5) - 2) * 0.0035) - dayIndex * 0.00028;
-  const odometerOffset = Math.abs(daysOffset) * 12.5 + dayIndex * 21.75;
-  const fuelOffset = (seed % 9) * 1.7;
-
-  return trail.map((point, pointIndex) => {
-    const timestamp = new Date(point.timestamp);
-    timestamp.setDate(timestamp.getDate() + daysOffset);
-    const wave = Math.sin((pointIndex + 1) * seed) * 0.0012;
-    const speedDelta = ((pointIndex + seed) % 5) - 2;
-    const speed = Math.max(0, Math.round(point.speed * speedMultiplier + speedDelta * 3));
-    const status = speed > 5 ? 'moving' : speed === 0 ? 'stopped' : 'idle';
-
-    return {
-      ...point,
-      timestamp: timestamp.toISOString(),
-      lat: point.lat + latShift + wave,
-      lng: point.lng + lngShift - wave * 0.7,
-      speed,
-      status,
-      ignition: status !== 'stopped',
-      heading: (point.heading + seed * 9 + 360) % 360,
-      odometer: Math.round((point.odometer + odometerOffset) * 100) / 100,
-      fuelLevel: Math.round(clamp(point.fuelLevel - fuelOffset + (dayIndex % 3), 3, 100) * 10) / 10,
-    };
-  });
+function makeLocalDate(date: string, time = '00:00:00') {
+  return new Date(`${date}T${time}`);
 }
 
-function buildRangeTrail(trail: GPSPoint[], days: number, firstOffset: number): GPSPoint[] {
-  return Array.from({ length: days }, (_, dayIndex) => (
-    varyTrailForDay(trail, firstOffset + dayIndex, dayIndex)
-  )).flat();
+function getPlaybackLocationKey<T extends { id: string }>(item: T) {
+  return item.id;
 }
 
-function getTrailForPeriod(trail: GPSPoint[], period: string, customStart = '', customEnd = ''): GPSPoint[] {
+function getPlaybackLocationInput<T extends { location: string; latitude: number; longitude: number }>(item: T) {
+  return {
+    locationText: item.location,
+    locationName: COORDINATE_PATTERN.test(item.location || '') ? undefined : item.location,
+    latitude: item.latitude,
+    longitude: item.longitude,
+  };
+}
+
+function getPlaybackRange(period: string, customStart = '', customEnd = '', timeZone?: string | null) {
+  const now = new Date();
+  const today = dateOnly(now, timeZone);
+  let from = today;
+  let to = today;
+
   if (period === 'Yesterday') {
-    return varyTrailForDay(trail, -1, 0);
+    const yesterday = new Date(now.getTime() - 86400000);
+    from = dateOnly(yesterday, timeZone);
+    to = from;
+  } else if (period === 'Last 7 Days') {
+    const weekAgo = new Date(now.getTime() - 6 * 86400000);
+    from = dateOnly(weekAgo, timeZone);
+  } else if (period === 'Last 30 Days') {
+    const monthAgo = new Date(now.getTime() - 29 * 86400000);
+    from = dateOnly(monthAgo, timeZone);
+  } else if (period === 'This Month') {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    from = dateOnly(monthStart, timeZone);
+  } else if (period === 'Last Month') {
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    from = dateOnly(lastMonthStart, timeZone);
+    to = dateOnly(lastMonthEnd, timeZone);
+  } else if (period === 'Custom') {
+    if (!customStart || !customEnd) return null;
+    from = customStart;
+    to = customEnd;
   }
 
-  if (period === 'Last 7 Days') {
-    return buildRangeTrail(trail, 7, -6);
-  }
-
-  if (period === 'Last 30 Days') {
-    return buildRangeTrail(trail, 30, -29);
-  }
-
-  if (period === 'This Month') {
-    const today = new Date();
-    return buildRangeTrail(trail, today.getDate(), -(today.getDate() - 1));
-  }
-
-  if (period === 'Last Month') {
-    return buildRangeTrail(trail, 30, -60);
-  }
-
-  if (period === 'Custom') {
-    if (!customStart || !customEnd) return trail;
-    const start = new Date(`${customStart}T00:00:00`);
-    const end = new Date(`${customEnd}T00:00:00`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return trail;
-
-    const startTime = Math.min(start.getTime(), end.getTime());
-    const endTime = Math.max(start.getTime(), end.getTime());
-    const dayCount = Math.min(31, Math.max(1, Math.round((endTime - startTime) / 86400000) + 1));
-    const today = new Date();
-    const startOffset = Math.round((startTime - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) / 86400000);
-
-    return buildRangeTrail(trail, dayCount, startOffset);
-  }
-
-  return trail;
+  const startDate = makeLocalDate(from, '00:00:00');
+  const endDate = makeLocalDate(to, '23:59:59');
+  const start = startDate <= endDate ? startDate : endDate;
+  const end = endDate >= startDate ? endDate : startDate;
+  return { start, end };
 }
 
 function formatTime(iso: string) {
@@ -94,58 +82,88 @@ function formatTime(iso: string) {
 }
 
 function formatDuration(hours: number) {
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
+  const totalMinutes = Math.max(0, Math.round((Number.isFinite(hours) ? hours : 0) * 60));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h <= 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
 }
 
-function getBounds(trail: GPSPoint[]) {
-  const lats = trail.map((p) => p.lat);
-  const lngs = trail.map((p) => p.lng);
+const OSM_TILE_SIZE = 256;
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function latLngToWorldPixel(lat: number, lng: number, zoom: number) {
+  const sinLat = Math.sin((clampNumber(lat, -85.05112878, 85.05112878) * Math.PI) / 180);
+  const scale = OSM_TILE_SIZE * (2 ** zoom);
   return {
-    minLat: Math.min(...lats),
-    maxLat: Math.max(...lats),
-    minLng: Math.min(...lngs),
-    maxLng: Math.max(...lngs),
+    x: ((lng + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
   };
 }
 
-function toPercent(trail: GPSPoint[], lat: number, lng: number) {
-  const b = getBounds(trail);
-  const padLat = (b.maxLat - b.minLat) * 0.15;
-  const padLng = (b.maxLng - b.minLng) * 0.15;
-  const pctY = ((b.maxLat + padLat - lat) / (b.maxLat - b.minLat + padLat * 2)) * 100;
-  const pctX = ((lng - (b.minLng - padLng)) / (b.maxLng - b.minLng + padLng * 2)) * 100;
-  return { x: Math.max(0, Math.min(100, pctX)), y: Math.max(0, Math.min(100, pctY)) };
+function getMapTileUrl(x: number, y: number, zoom: number) {
+  const subdomains = ['a', 'b', 'c'];
+  const subdomain = subdomains[Math.abs(x + y) % subdomains.length];
+  return `https://${subdomain}.tile.openstreetmap.org/${zoom}/${x}/${y}.png`;
 }
 
-function buildSvgPath(trail: GPSPoint[]) {
-  if (trail.length === 0) return '';
-  const b = getBounds(trail);
-  const padLat = (b.maxLat - b.minLat) * 0.15;
-  const padLng = (b.maxLng - b.minLng) * 0.15;
-  const scaleY = 100 / (b.maxLat - b.minLat + padLat * 2);
-  const scaleX = 100 / (b.maxLng - b.minLng + padLng * 2);
+function getMapTiles(
+  center: { lat: number; lng: number },
+  zoom: number,
+  size: { width: number; height: number },
+) {
+  const width = Math.max(1, size.width || 400);
+  const height = Math.max(1, size.height || 300);
+  const tileCount = 2 ** zoom;
+  const centerPixel = latLngToWorldPixel(center.lat, center.lng, zoom);
+  const topLeftX = centerPixel.x - width / 2;
+  const topLeftY = centerPixel.y - height / 2;
+  const startTileX = Math.floor(topLeftX / OSM_TILE_SIZE) - 1;
+  const endTileX = Math.floor((topLeftX + width) / OSM_TILE_SIZE) + 1;
+  const startTileY = Math.floor(topLeftY / OSM_TILE_SIZE) - 1;
+  const endTileY = Math.floor((topLeftY + height) / OSM_TILE_SIZE) + 1;
+  const tiles: Array<{ key: string; src: string; left: number; top: number }> = [];
 
-  const points = trail.map((p) => {
-    const x = (p.lng - (b.minLng - padLng)) * scaleX;
-    const y = (b.maxLat + padLat - p.lat) * scaleY;
-    return `${x},${y}`;
-  });
+  for (let tileY = startTileY; tileY <= endTileY; tileY += 1) {
+    if (tileY < 0 || tileY >= tileCount) continue;
+    for (let tileX = startTileX; tileX <= endTileX; tileX += 1) {
+      const wrappedX = ((tileX % tileCount) + tileCount) % tileCount;
+      tiles.push({
+        key: `${zoom}-${wrappedX}-${tileY}-${tileX}`,
+        src: getMapTileUrl(wrappedX, tileY, zoom),
+        left: tileX * OSM_TILE_SIZE - topLeftX,
+        top: tileY * OSM_TILE_SIZE - topLeftY,
+      });
+    }
+  }
 
-  return `M ${points.join(' L ')}`;
+  return tiles;
 }
 
-function getMapEmbedUrl(trail: GPSPoint[]) {
-  if (trail.length === 0) return '';
-  const b = getBounds(trail);
-  const centerLat = (b.minLat + b.maxLat) / 2;
-  const centerLng = (b.minLng + b.maxLng) / 2;
-  return `https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d193595!2d${centerLng}!3d${centerLat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2z${centerLat}N+${Math.abs(centerLng)}W!5e0!3m2!1sen!2s!4v1699999999999!5m2!1sen!2s`;
+function getMapPointPosition(
+  center: { lat: number; lng: number },
+  point: { lat: number; lng: number },
+  zoom: number,
+  size: { width: number; height: number },
+) {
+  const width = Math.max(1, size.width || 400);
+  const height = Math.max(1, size.height || 300);
+  const centerPixel = latLngToWorldPixel(center.lat, center.lng, zoom);
+  const pointPixel = latLngToWorldPixel(point.lat, point.lng, zoom);
+
+  return {
+    left: width / 2 + pointPixel.x - centerPixel.x,
+    top: height / 2 + pointPixel.y - centerPixel.y,
+  };
 }
 
-function getSinglePointMapUrl(lat: number, lng: number) {
-  return `https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1000!2d${lng}!3d${lat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2z${lat}N+${Math.abs(lng)}W!5e0!3m2!1sen!2s!4v1699999999999!5m2!1sen!2s`;
+function getPlaybackPinClass(runtimeStatus: GPSPoint['status'] | PlaybackVehicle['status'] | null | undefined) {
+  const status = runtimeStatus ?? 'offline';
+  return getVehicleColorClass({ networkStatus: status !== 'offline' }, status);
 }
 
 function eventIcon(type: EventType): string {
@@ -206,32 +224,39 @@ function eventLabel(type: EventType): string {
 }
 
 function getVehicleStateColor(point: GPSPoint): string {
-  if (point.speed > 80) return '#EF4444';
-  if (point.speed > 5) return '#10B981';
-  if (point.ignition) return '#F59E0B';
-  return '#3B82F6';
+  if (point.status === 'moving') return '#10B981';
+  if (point.status === 'idle') return '#F59E0B';
+  if (point.status === 'stopped') return '#3B82F6';
+  return '#EF4444';
 }
 
-function getSvgPositions(trail: GPSPoint[]) {
-  const b = getBounds(trail);
-  const padLat = (b.maxLat - b.minLat) * 0.15;
-  const padLng = (b.maxLng - b.minLng) * 0.15;
-  const totalLat = b.maxLat - b.minLat + padLat * 2;
-  const totalLng = b.maxLng - b.minLng + padLng * 2;
-  return trail.map((p) => ({
-    x: ((p.lng - (b.minLng - padLng)) / totalLng) * 100,
-    y: ((b.maxLat + padLat - p.lat) / totalLat) * 100,
-  }));
+function buildFallbackTrail(vehicle: { latitude: number; longitude: number; gpsTimestamp: string; lastUpdated: string; status?: PlaybackVehicle['status'] | GPSPoint['status'] }) {
+  if (!Number.isFinite(vehicle.latitude) || !Number.isFinite(vehicle.longitude)) return [];
+  if (vehicle.latitude === 0 && vehicle.longitude === 0) return [];
+
+  return [{
+    lat: vehicle.latitude,
+    lng: vehicle.longitude,
+    timestamp: vehicle.gpsTimestamp || vehicle.lastUpdated || new Date().toISOString(),
+    speed: 0,
+    status: vehicle.status || 'stopped',
+    ignition: false,
+    heading: 0,
+    odometer: 0,
+    fuelLevel: 0,
+  }];
 }
 
 export default function Playback() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { isDark } = useTheme();
+  const playbackVehicles = usePlaybackVehicles();
   const urlVehicleId = searchParams.get('vehicleId');
 
   const initialVehicleId = urlVehicleId && playbackVehicles.some((v) => v.id === urlVehicleId)
     ? urlVehicleId
-    : playbackVehicles[0].id;
+    : playbackVehicles[0]?.id ?? '';
 
   const [selectedVehicleId, setSelectedVehicleId] = useState(initialVehicleId);
   const [selectedPeriod, setSelectedPeriod] = useState('Today');
@@ -242,36 +267,277 @@ export default function Playback() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [mapZoom, setMapZoom] = useState(15);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
+  const [popupMapSize, setPopupMapSize] = useState({ width: 400, height: 280 });
   const [visibleEventIds, setVisibleEventIds] = useState<Set<string>>(new Set());
   const [popupEvent, setPopupEvent] = useState<PlaybackEvent | null>(null);
+  const [historyTrail, setHistoryTrail] = useState<GPSPoint[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [routeReloadKey, setRouteReloadKey] = useState(0);
+  const [vehicleListLoading, setVehicleListLoading] = useState(false);
+  const [vehicleListError, setVehicleListError] = useState('');
   const triggeredRef = useRef<Set<string>>(new Set());
+  const routeRequestRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const mapViewportRef = useRef<HTMLDivElement | null>(null);
+  const popupMapViewportRef = useRef<HTMLDivElement | null>(null);
 
   const vehicle = useMemo(
-    () => playbackVehicles.find((v) => v.id === selectedVehicleId) || playbackVehicles[0],
-    [selectedVehicleId]
+    () => playbackVehicles.find((v) => v.id === selectedVehicleId) || playbackVehicles[0] || null,
+    [selectedVehicleId, playbackVehicles]
   );
 
-  const trail = useMemo(
-    () => getTrailForPeriod(vehicle.trail, selectedPeriod, customStart, customEnd),
-    [vehicle.trail, selectedPeriod, customStart, customEnd]
+  const activeVehicle = useMemo(
+    () => vehicle ?? playbackVehicles[0] ?? {
+      id: '',
+      deviceId: null,
+      companyTimezone: null,
+      name: 'Loading...',
+      plateNumber: '',
+      driver: '',
+      location: '',
+      address: null,
+      hasFuelSensor: false,
+      status: 'offline' as const,
+      lastUpdated: '',
+      gpsTimestamp: '',
+      latitude: 0,
+      longitude: 0,
+      image: '',
+      vehicleType: 'sedan' as const,
+      trail: [],
+    },
+    [vehicle, playbackVehicles],
   );
+  const playbackLocationLabels = useResolvedLocationLabels(playbackVehicles, {
+    getKey: getPlaybackLocationKey,
+    getInput: getPlaybackLocationInput,
+    fallback: 'Address not available',
+  });
+  const activeVehicleLocation = activeVehicle.id
+    ? playbackLocationLabels[activeVehicle.id] ?? 'Address not available'
+    : '--';
+  const playbackRange = useMemo(
+    () => getPlaybackRange(selectedPeriod, customStart, customEnd, activeVehicle.companyTimezone),
+    [selectedPeriod, customStart, customEnd, activeVehicle.companyTimezone],
+  );
+
+  useEffect(() => {
+    if (selectedVehicleId) return;
+    if (playbackVehicles.length === 0) return;
+
+    const nextVehicleId = urlVehicleId && playbackVehicles.some((v) => v.id === urlVehicleId)
+      ? urlVehicleId
+      : playbackVehicles[0]?.id ?? '';
+
+    if (nextVehicleId) {
+      setSelectedVehicleId(nextVehicleId);
+    }
+  }, [selectedVehicleId, urlVehicleId, playbackVehicles]);
+
+  useEffect(() => {
+    if (playbackVehicles.length > 0) {
+      setVehicleListLoading(false);
+      setVehicleListError('');
+      return;
+    }
+
+    let cancelled = false;
+    setVehicleListLoading(true);
+    setVehicleListError('');
+    void refreshPlaybackVehicles({ force: true })
+      .then((vehicles) => {
+        if (cancelled) return;
+        if (vehicles.length === 0) {
+          setVehicleListError('No units found from live fleet data.');
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setVehicleListError(error instanceof Error ? error.message : 'Unable to load units.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setVehicleListLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [playbackVehicles.length]);
+
+  const handleReloadPlaybackVehicles = async () => {
+    setVehicleListLoading(true);
+    setVehicleListError('');
+    try {
+      const vehicles = await refreshPlaybackVehicles({ force: true });
+      if (vehicles.length === 0) {
+        setVehicleListError('No units found from live fleet data.');
+      }
+    } catch (error) {
+      setVehicleListError(error instanceof Error ? error.message : 'Unable to load units.');
+    } finally {
+      setVehicleListLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const requestId = routeRequestRef.current + 1;
+    routeRequestRef.current = requestId;
+    let cancelled = false;
+
+    const loadRoute = async () => {
+      setCurrentIndex(0);
+      setIsPlaying(false);
+      setPopupEvent(null);
+      setVisibleEventIds(new Set());
+      setHistoryTrail([]);
+      setHistoryError('');
+
+      if (!activeVehicle.id) {
+        setHistoryLoading(false);
+        return;
+      }
+
+      if (!activeVehicle.deviceId) {
+        setHistoryLoading(false);
+        setHistoryError('Playback requires this unit to have a device id, same as the website history selector.');
+        return;
+      }
+
+      if (!playbackRange) {
+        setHistoryLoading(false);
+        setHistoryError(selectedPeriod === 'Custom' ? 'Select custom start and end dates.' : '');
+        return;
+      }
+
+      setHistoryLoading(true);
+      try {
+        const route = await Promise.race([
+          fetchPlaybackTrailForRange({
+            vehicle: activeVehicle,
+            start: playbackRange.start,
+            end: playbackRange.end,
+          }),
+          new Promise<GPSPoint[]>((_, reject) => {
+            window.setTimeout(() => reject(new Error('Playback route load timed out. Tap retry to load again.')), 12000);
+          }),
+        ]);
+        if (!cancelled && routeRequestRef.current === requestId) {
+          setHistoryTrail(route);
+          if (route.length === 0) {
+            setHistoryError('No website playback GPS points for this unit and date range.');
+          }
+        }
+      } catch (error) {
+        if (!cancelled && routeRequestRef.current === requestId) {
+          setHistoryTrail([]);
+          setHistoryError(error instanceof Error ? error.message : 'Unable to load website playback route.');
+        }
+      } finally {
+        if (!cancelled && routeRequestRef.current === requestId) setHistoryLoading(false);
+      }
+    };
+
+    void loadRoute();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVehicle, playbackRange, selectedPeriod, routeReloadKey]);
+
+  const trail = historyTrail;
+  const previewTrail = useMemo(() => {
+    if (trail.length > 0) return trail;
+    return buildFallbackTrail(activeVehicle);
+  }, [trail, activeVehicle]);
+  const hasTrail = trail.length > 0;
   const stats = useMemo(() => getTrailStats(trail), [trail]);
   const events = useMemo(() => getVehicleEvents(trail), [trail]);
   const idleCount = useMemo(() => trail.filter((point) => point.status === 'idle').length, [trail]);
 
-  const currentPoint = trail[currentIndex];
-  const currentPos = useMemo(
-    () => (currentPoint ? toPercent(trail, currentPoint.lat, currentPoint.lng) : { x: 0, y: 0 }),
-    [currentPoint, trail]
+  const currentPoint = trail[currentIndex] ?? previewTrail[currentIndex] ?? previewTrail[0] ?? null;
+  const currentMarkerStatus: PlaybackVehicle['status'] | GPSPoint['status'] | undefined = trail.length > 0
+    ? currentPoint?.status
+    : activeVehicle.status;
+  const mapFocusPoint = useMemo(() => currentPoint ?? previewTrail[0] ?? null, [currentPoint, previewTrail]);
+  const mapMarkerPoint = useMemo(
+    () => mapFocusPoint ?? {
+      lat: activeVehicle.latitude,
+      lng: activeVehicle.longitude,
+    },
+    [mapFocusPoint, activeVehicle.latitude, activeVehicle.longitude],
+  );
+  const mapTiles = useMemo(
+    () => (mapCenter ? getMapTiles(mapCenter, mapZoom, mapSize) : []),
+    [mapCenter, mapZoom, mapSize],
+  );
+  const mapPointPositions = useMemo(
+    () => (mapCenter ? previewTrail.map((point) => getMapPointPosition(mapCenter, point, mapZoom, mapSize)) : []),
+    [mapCenter, mapZoom, mapSize, previewTrail],
+  );
+  const popupMapCenter = useMemo(
+    () => (popupEvent ? { lat: popupEvent.lat, lng: popupEvent.lng } : null),
+    [popupEvent],
+  );
+  const popupMapTiles = useMemo(
+    () => (popupMapCenter ? getMapTiles(popupMapCenter, 16, popupMapSize) : []),
+    [popupMapCenter, popupMapSize],
+  );
+  const currentMarkerPosition = useMemo(
+    () => (mapCenter ? getMapPointPosition(mapCenter, mapMarkerPoint, mapZoom, mapSize) : { left: 0, top: 0 }),
+    [mapCenter, mapMarkerPoint, mapZoom, mapSize],
   );
 
-  const trailPath = useMemo(() => buildSvgPath(trail), [trail]);
-  const mapUrl = useMemo(() => getMapEmbedUrl(trail), [trail]);
-  const svgPositions = useMemo(() => getSvgPositions(trail), [trail]);
+  useEffect(() => {
+    if (!mapFocusPoint) return;
+    setMapCenter({ lat: mapFocusPoint.lat, lng: mapFocusPoint.lng });
+  }, [mapFocusPoint]);
+
+  useEffect(() => {
+    const node = mapViewportRef.current;
+    if (!node) return;
+
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect();
+      setMapSize({
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!popupEvent) return;
+    const node = popupMapViewportRef.current;
+    if (!node) return;
+
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect();
+      setPopupMapSize({
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [popupEvent]);
 
   const progress = trail.length > 1 ? (currentIndex / (trail.length - 1)) * 100 : 0;
+  const canReplay = trail.length > 1 && !historyLoading;
+  const canStep = trail.length > 0 && !historyLoading;
 
   // Trigger map event markers when currentIndex passes an event
   useEffect(() => {
@@ -279,7 +545,7 @@ export default function Playback() {
     let changed = false;
 
     events.forEach((evt, idx) => {
-      const key = `${vehicle.id}-evt-${idx}`;
+      const key = `${activeVehicle.id}-evt-${idx}`;
       if (evt.trailIndex <= currentIndex && !triggeredRef.current.has(key)) {
         triggeredRef.current.add(key);
         newVisible.add(key);
@@ -300,7 +566,7 @@ export default function Playback() {
     if (changed) {
       setVisibleEventIds(newVisible);
     }
-  }, [currentIndex, events, vehicle.id, visibleEventIds]);
+  }, [currentIndex, events, activeVehicle.id, visibleEventIds]);
 
   // Clear timeouts on unmount / vehicle change
   useEffect(() => {
@@ -321,6 +587,7 @@ export default function Playback() {
   }, [selectedVehicleId, selectedPeriod, customStart, customEnd]);
 
   const startPlaying = useCallback(() => {
+    if (trail.length < 2) return;
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
       setCurrentIndex((prev) => {
@@ -357,6 +624,11 @@ export default function Playback() {
   }, [isPlaying, startPlaying, stopPlaying]);
 
   const handlePlayPause = () => {
+    if (historyLoading) return;
+    if (!canReplay) {
+      setRouteReloadKey((value) => value + 1);
+      return;
+    }
     if (currentIndex >= trail.length - 1) {
       setCurrentIndex(0);
     }
@@ -369,25 +641,49 @@ export default function Playback() {
   };
 
   const handleForward = () => {
+    if (!canStep) return;
     setCurrentIndex((prev) => Math.min(trail.length - 1, prev + 10));
   };
 
   const handleReverse = () => {
+    if (!canStep) return;
     setCurrentIndex((prev) => Math.max(0, prev - 10));
   };
 
   const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canStep) return;
     const val = parseFloat(e.target.value);
     const idx = Math.round((val / 100) * (trail.length - 1));
     setCurrentIndex(Math.max(0, Math.min(trail.length - 1, idx)));
     if (isPlaying) stopPlaying();
   };
 
+  const handlePlaybackSpeed = () => {
+    setPlaybackSpeed((speed) => {
+      if (speed >= 4) return 1;
+      if (speed >= 2) return 4;
+      return 2;
+    });
+  };
+
+  const handleMapZoom = (direction: 'in' | 'out') => {
+    setMapZoom((value) => {
+      if (direction === 'in') return Math.min(18, value + 1);
+      return Math.max(3, value - 1);
+    });
+  };
+
   const handleVehicleChange = (id: string) => {
+    routeRequestRef.current += 1;
     setSelectedVehicleId(id);
     setShowVehiclePicker(false);
+    setHistoryTrail([]);
+    setHistoryError('');
+    setHistoryLoading(true);
     setCurrentIndex(0);
     setIsPlaying(false);
+    setPopupEvent(null);
+    setVisibleEventIds(new Set());
   };
 
   const handlePeriodChange = (period: string) => {
@@ -401,7 +697,7 @@ export default function Playback() {
   const handleDownload = () => {
     const rows = trail.map((point, index) => [
       String(index + 1),
-      vehicle.name,
+      activeVehicle.name,
       point.timestamp,
       String(point.lat),
       String(point.lng),
@@ -411,8 +707,8 @@ export default function Playback() {
       point.ignition ? 'On' : 'Off',
     ]);
     downloadCSV(
-      `Playback_${vehicle.name}_${selectedPeriod.replace(/\s+/g, '_')}`,
-      ['Point', 'Vehicle', 'Timestamp', 'Latitude', 'Longitude', 'Speed', 'Status', 'Fuel Level', 'Ignition'],
+      `Playback_${activeVehicle.name}_${selectedPeriod.replace(/\s+/g, '_')}`,
+      ['Point', 'Unit', 'Timestamp', 'Latitude', 'Longitude', 'Speed', 'Status', 'Fuel Level', 'Ignition'],
       rows,
     );
   };
@@ -420,14 +716,9 @@ export default function Playback() {
   // Find currently visible event objects
   const visibleEventObjects = useMemo(() => {
     return events
-      .map((evt, idx) => ({ evt, idx, key: `${vehicle.id}-evt-${idx}` }))
+      .map((evt, idx) => ({ evt, idx, key: `${activeVehicle.id}-evt-${idx}` }))
       .filter(({ key }) => visibleEventIds.has(key));
-  }, [events, visibleEventIds, vehicle.id]);
-
-  const popupMapUrl = useMemo(
-    () => (popupEvent ? getSinglePointMapUrl(popupEvent.lat, popupEvent.lng) : ''),
-    [popupEvent]
-  );
+  }, [events, visibleEventIds, activeVehicle.id]);
 
   return (
     <div className="min-h-full pb-4 bg-surface-dark">
@@ -528,32 +819,66 @@ export default function Playback() {
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-card border border-surface-border text-left btn-press"
         >
           <div className="flex-1 min-w-0">
-            <h3 className="truncate text-body font-semibold text-text-primary">{vehicle.name}</h3>
+            <h3 className="truncate text-body font-semibold text-text-primary">
+              {playbackVehicles.length === 0 ? (vehicleListLoading ? 'Loading units...' : 'Select unit') : activeVehicle.name}
+            </h3>
           </div>
           <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
             <i className="ph ph-caret-down text-text-tertiary" />
           </div>
         </button>
+        <div className="mt-2 rounded-xl border border-surface-border bg-surface-card/70 px-4 py-2 text-caption-sm text-text-secondary">
+          <div className="flex items-center gap-3">
+            <span className="flex-shrink-0 font-semibold text-text-tertiary">Live location</span>
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div className="playback-location-marquee whitespace-nowrap">
+                <span className="pr-10 font-medium text-text-primary">{activeVehicleLocation}</span>
+                <span className="pr-10 font-medium text-text-primary">{activeVehicleLocation}</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <span className="font-semibold text-text-tertiary">Last updated</span>
+            <span className="truncate font-medium text-text-primary">{activeVehicle.lastUpdated || '--'}</span>
+          </div>
+        </div>
       </div>
 
       {/* Map */}
       <div className="px-5 mt-3">
-        <div className="card-surface rounded-2xl overflow-hidden relative h-[300px] border border-surface-border">
-          <iframe
-            className="playback-map-iframe"
-            width="100%"
-            height="100%"
-            style={{ border: 0 }}
-            loading="lazy"
-            allowFullScreen
-            referrerPolicy="no-referrer-when-downgrade"
-            src={mapUrl}
-          />
+          <div
+            ref={mapViewportRef}
+            className="playback-map-frame card-surface rounded-2xl overflow-hidden relative h-[300px] border border-surface-border"
+          >
+          <div
+            className="absolute inset-0 overflow-hidden bg-[#dbe7ef] dark:bg-[#101820]"
+            style={isDark ? { filter: 'invert(90%) hue-rotate(180deg) saturate(0.5) contrast(1.1)' } : undefined}
+          >
+            {mapTiles.map((tile) => (
+              <img
+                key={tile.key}
+                src={tile.src}
+                alt=""
+                draggable={false}
+                className="absolute select-none"
+                style={{
+                  left: tile.left,
+                  top: tile.top,
+                  width: OSM_TILE_SIZE,
+                  height: OSM_TILE_SIZE,
+                  maxWidth: 'none',
+                  userSelect: 'none',
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
+          </div>
 
-          {/* SVG Trail Overlay */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),rgba(15,23,42,0.08)_72%,rgba(15,23,42,0.16))]" />
+
           <svg
             className="absolute inset-0 w-full h-full pointer-events-none"
-            viewBox="0 0 100 100"
+            viewBox={`0 0 ${Math.max(1, mapSize.width || 400)} ${Math.max(1, mapSize.height || 300)}`}
             preserveAspectRatio="none"
             style={{ zIndex: 2 }}
           >
@@ -563,84 +888,89 @@ export default function Playback() {
                 <stop offset="100%" stopColor="#D4AF37" stopOpacity="0.8" />
               </linearGradient>
             </defs>
-            <path
-              d={trailPath}
-              fill="none"
-              stroke="url(#trailGrad)"
-              strokeWidth="0.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-            {/* Color-coded traveled trail segments */}
-            {currentIndex > 0 && svgPositions.slice(0, currentIndex).map((pos, i) => {
-              const next = svgPositions[i + 1];
+            {mapPointPositions.length > 1 && (
+              <polyline
+                points={mapPointPositions.map((pos) => `${pos.left},${pos.top}`).join(' ')}
+                fill="none"
+                stroke="url(#trailGrad)"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            {previewTrail.length > 1 && currentIndex > 0 && mapPointPositions.slice(0, currentIndex).map((pos, i) => {
+              const next = mapPointPositions[i + 1];
               if (!next) return null;
-              const color = getVehicleStateColor(trail[i]);
+              const color = getVehicleStateColor(previewTrail[i]);
               return (
                 <line
                   key={`seg-${i}`}
-                  x1={pos.x}
-                  y1={pos.y}
-                  x2={next.x}
-                  y2={next.y}
+                  x1={pos.left}
+                  y1={pos.top}
+                  x2={next.left}
+                  y2={next.top}
                   stroke={color}
-                  strokeWidth="1"
+                  strokeWidth="2.5"
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
                   opacity="0.9"
                 />
               );
             })}
-            <circle cx={toPercent(trail, trail[0].lat, trail[0].lng).x} cy={toPercent(trail, trail[0].lat, trail[0].lng).y} r="1.2" fill="#0EA5E9" opacity="0.8" />
-            <circle cx={toPercent(trail, trail[trail.length - 1].lat, trail[trail.length - 1].lng).x} cy={toPercent(trail, trail[trail.length - 1].lat, trail[trail.length - 1].lng).y} r="1.2" fill="#EF4444" opacity="0.8" />
           </svg>
 
-          {/* Current Position Marker — Directional Arrow */}
+          {previewTrail.length > 0 && (
+            <div
+              className="absolute z-[3] pointer-events-none"
+              style={{
+                left: `${getMapPointPosition(mapCenter ?? mapMarkerPoint, previewTrail[0], mapZoom, mapSize).left}px`,
+                top: `${getMapPointPosition(mapCenter ?? mapMarkerPoint, previewTrail[0], mapZoom, mapSize).top}px`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-sky-500 border border-white shadow-md" />
+            </div>
+          )}
+
+          {previewTrail.length > 0 && (
+            <div
+              className="absolute z-[3] pointer-events-none"
+              style={{
+                left: `${getMapPointPosition(mapCenter ?? mapMarkerPoint, previewTrail[previewTrail.length - 1], mapZoom, mapSize).left}px`,
+                top: `${getMapPointPosition(mapCenter ?? mapMarkerPoint, previewTrail[previewTrail.length - 1], mapZoom, mapSize).top}px`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500 border border-white shadow-md" />
+            </div>
+          )}
+
           <div
             className="absolute z-10 pointer-events-none"
             style={{
-              left: `${currentPos.x}%`,
-              top: `${currentPos.y}%`,
+              left: `${currentMarkerPosition.left}px`,
+              top: `${currentMarkerPosition.top}px`,
               transform: 'translate(-50%, -50%)',
               transition: isPlaying ? 'left 0.3s linear, top 0.3s linear' : 'left 0.15s ease, top 0.15s ease',
             }}
           >
-            {currentPoint && (
-              <div className="relative">
-                <div
-                  className="absolute inset-[-4px] rounded-full opacity-20 animate-pulse"
-                  style={{ backgroundColor: getVehicleStateColor(currentPoint) }}
-                />
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center border-2 border-white shadow-lg relative"
-                  style={{
-                    backgroundColor: getVehicleStateColor(currentPoint),
-                    transition: 'background-color 0.2s ease',
-                  }}
-                >
-                  <i
-                    className="ph-fill ph-caret-up text-white text-xl"
-                    style={{
-                      transform: `rotate(${currentPoint.heading}deg)`,
-                      transition: isPlaying ? 'transform 0.3s linear' : 'transform 0.15s ease',
-                    }}
-                  />
-                </div>
+            <div className="dashboard-map-pin flex flex-col items-center">
+              <div className={`dashboard-map-pin-dot ${getPlaybackPinClass(currentMarkerStatus)}`}>
+                <i className="ph-fill ph-car text-white text-xs" />
               </div>
-            )}
+            </div>
           </div>
 
-          {/* Event Markers on Map */}
-          {visibleEventObjects.map(({ evt, idx, key }) => {
-            const pos = toPercent(trail, evt.lat, evt.lng);
+          {visibleEventObjects.map(({ evt, key }) => {
+            const pos = mapCenter ? getMapPointPosition(mapCenter, evt, mapZoom, mapSize) : { left: 0, top: 0 };
             return (
               <div
                 key={key}
                 className="absolute z-20 pointer-events-none"
                 style={{
-                  left: `${pos.x}%`,
-                  top: `${pos.y}%`,
+                  left: `${pos.left}px`,
+                  top: `${pos.top}px`,
                   transform: 'translate(-50%, -100%)',
                 }}
               >
@@ -656,6 +986,28 @@ export default function Playback() {
             );
           })}
 
+          <div className="absolute right-3 top-3 z-20 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => handleMapZoom('in')}
+              className="map-control-btn h-10 w-10 btn-press"
+              aria-label="Zoom in playback map"
+            >
+              <i className="ph ph-plus" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleMapZoom('out')}
+              className="map-control-btn h-10 w-10 btn-press"
+              aria-label="Zoom out playback map"
+            >
+              <i className="ph ph-minus" />
+            </button>
+          </div>
+
+          <div className="absolute left-3 bottom-3 z-20 rounded-full border border-surface-border bg-surface-card/95 px-3 py-1 text-[10px] font-semibold text-text-secondary shadow-sm">
+            © OpenStreetMap contributors
+          </div>
         </div>
       </div>
 
@@ -694,15 +1046,16 @@ export default function Playback() {
               step={0.1}
               value={progress}
               onChange={handleScrub}
-              className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-surface-border accent-primary"
+              disabled={!canStep}
+              className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-surface-border accent-primary disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background: `linear-gradient(to right, #D4AF37 ${progress}%, var(--surface-border) ${progress}%)`,
               }}
             />
             <div className="flex justify-between mt-1.5">
-              <span className="text-[10px] text-text-tertiary">{formatTime(trail[0].timestamp)}</span>
+              <span className="text-[10px] text-text-tertiary">{hasTrail ? formatTime(trail[0].timestamp) : '--:--'}</span>
               <span className="text-[10px] text-text-tertiary">
-                {formatTime(trail[Math.max(0, trail.length - 1)].timestamp)}
+                {hasTrail ? formatTime(trail[Math.max(0, trail.length - 1)].timestamp) : '--:--'}
               </span>
             </div>
           </div>
@@ -710,7 +1063,8 @@ export default function Playback() {
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={handleReverse}
-              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-text-secondary btn-press"
+              disabled={!canStep}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-text-secondary btn-press disabled:cursor-not-allowed disabled:opacity-40"
               title="Rewind"
             >
               <div className="w-5 h-5 flex items-center justify-center">
@@ -720,7 +1074,8 @@ export default function Playback() {
 
             <button
               onClick={handleStop}
-              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-text-secondary btn-press"
+              disabled={!canStep}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-text-secondary btn-press disabled:cursor-not-allowed disabled:opacity-40"
               title="Stop"
             >
               <div className="w-5 h-5 flex items-center justify-center">
@@ -730,17 +1085,19 @@ export default function Playback() {
 
             <button
               onClick={handlePlayPause}
-              className="w-14 h-14 flex items-center justify-center rounded-2xl bg-primary text-white shadow-lg btn-press"
-              title={isPlaying ? 'Pause' : 'Play'}
+              disabled={historyLoading}
+              className="w-14 h-14 flex items-center justify-center rounded-2xl bg-primary text-white shadow-lg btn-press disabled:cursor-not-allowed disabled:bg-surface-border disabled:text-text-tertiary disabled:shadow-none"
+              title={historyLoading ? 'Loading route' : canReplay ? (isPlaying ? 'Pause' : 'Play') : 'Retry loading playback route'}
             >
               <div className="w-7 h-7 flex items-center justify-center">
-                <i className={`${isPlaying ? 'ph-fill ph-pause' : 'ph-fill ph-play'} text-2xl`} />
+                <i className={`${historyLoading ? 'ph ph-circle-notch animate-spin' : isPlaying ? 'ph-fill ph-pause' : canReplay ? 'ph-fill ph-play' : 'ph ph-arrow-clockwise'} text-2xl`} />
               </div>
             </button>
 
             <button
               onClick={handleForward}
-              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-text-secondary btn-press"
+              disabled={!canStep}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-text-secondary btn-press disabled:cursor-not-allowed disabled:opacity-40"
               title="Forward"
             >
               <div className="w-5 h-5 flex items-center justify-center">
@@ -749,8 +1106,9 @@ export default function Playback() {
             </button>
 
             <button
-              onClick={() => setPlaybackSpeed((s) => (s >= 4 ? 1 : s * 2))}
-              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-caption font-bold text-primary btn-press"
+              onClick={handlePlaybackSpeed}
+              disabled={historyLoading}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-dark border border-surface-border text-caption font-bold text-primary btn-press disabled:cursor-not-allowed disabled:opacity-40"
               title="Playback speed"
             >
               {playbackSpeed}x
@@ -829,18 +1187,31 @@ export default function Playback() {
             </div>
 
             {/* Map */}
-            <div className="relative h-[280px] border-y border-surface-border">
-              <iframe
-                className="playback-map-iframe"
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                loading="lazy"
-                allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade"
-                src={popupMapUrl}
-              />
-              {/* Pin overlay */}
+            <div ref={popupMapViewportRef} className="relative h-[280px] border-y border-surface-border overflow-hidden">
+              <div
+                className="absolute inset-0 overflow-hidden bg-[#dbe7ef] dark:bg-[#101820]"
+                style={isDark ? { filter: 'invert(90%) hue-rotate(180deg) saturate(0.5) contrast(1.1)' } : undefined}
+              >
+                {popupMapTiles.map((tile) => (
+                  <img
+                    key={tile.key}
+                    src={tile.src}
+                    alt=""
+                    draggable={false}
+                    className="absolute select-none"
+                    style={{
+                      left: tile.left,
+                      top: tile.top,
+                      width: OSM_TILE_SIZE,
+                      height: OSM_TILE_SIZE,
+                      maxWidth: 'none',
+                      userSelect: 'none',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                ))}
+              </div>
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),rgba(15,23,42,0.08)_72%,rgba(15,23,42,0.16))]" />
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                 <div className="relative -mt-6">
                   <div className={`w-10 h-10 flex items-center justify-center rounded-full border-[3px] border-white shadow-xl ${eventBg(popupEvent.type)}`}>
@@ -881,11 +1252,11 @@ export default function Playback() {
           onClick={() => setShowVehiclePicker(false)}
         >
           <div
-            className="flex h-[min(72vh,calc(100dvh-7rem))] w-full flex-col overflow-hidden rounded-t-2xl border border-surface-border bg-surface-card shadow-xl sm:h-[70vh] sm:w-[420px] sm:rounded-2xl"
+            className="flex h-[min(82vh,calc(100dvh-4rem))] w-full flex-col overflow-hidden rounded-t-2xl border border-surface-border bg-surface-card shadow-xl sm:h-[76vh] sm:w-[420px] sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sticky top-0 z-10 flex items-center justify-between px-5 pt-6 pb-3 bg-surface-card">
-              <h2 className="text-lg font-bold text-text-primary">Select Vehicle</h2>
+              <h2 className="text-lg font-bold text-text-primary">Select Unit</h2>
               <button
                 onClick={() => setShowVehiclePicker(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-surface-dark text-text-secondary btn-press"
@@ -894,9 +1265,30 @@ export default function Playback() {
               </button>
             </div>
             <div
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 space-y-2 scroll-momentum"
-              style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-24 space-y-2 scroll-momentum"
+              style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch', scrollPaddingBottom: '6rem' }}
             >
+              {playbackVehicles.length === 0 && (
+                <div className="rounded-2xl border border-surface-border bg-surface-dark px-4 py-5 text-center">
+                  <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <i className={`ph ${vehicleListLoading ? 'ph-circle-notch animate-spin' : 'ph-truck'} text-lg`} />
+                  </div>
+                  <p className="text-sm font-bold text-text-primary">
+                    {vehicleListLoading ? 'Loading live units...' : 'No units loaded'}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-snug text-text-secondary">
+                    {vehicleListError || 'Tap retry to read the same live fleet data used by the website.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleReloadPlaybackVehicles}
+                    disabled={vehicleListLoading}
+                    className="mt-4 rounded-xl bg-primary px-4 py-2 text-[11px] font-bold text-white btn-press disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {vehicleListLoading ? 'Loading...' : 'Retry loading units'}
+                  </button>
+                </div>
+              )}
               {playbackVehicles.map((v) => (
                 <button
                   key={v.id}
@@ -909,6 +1301,7 @@ export default function Playback() {
                 >
                   <div className="flex-1 min-w-0">
                     <h4 className="truncate text-body font-semibold text-text-primary">{v.name}</h4>
+                    <p className="truncate text-[10px] text-text-tertiary">{playbackLocationLabels[v.id] ?? 'Address not available'}</p>
                   </div>
                   {selectedVehicleId === v.id && (
                     <div className="w-6 h-6 flex items-center justify-center rounded-full bg-primary flex-shrink-0">

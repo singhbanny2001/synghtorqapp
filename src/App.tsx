@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext";
 import MobileShell from "@/components/MobileShell";
 import { AccountProvider } from "@/mocks/AccountContext";
+import DebugFleetOverlay from "@/components/DebugFleetOverlay";
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
               <MobileShell>
                 <AppRoutes />
               </MobileShell>
+              <DebugFleetOverlay />
             </BrowserRouter>
           </AccountProvider>
         </AuthProvider>

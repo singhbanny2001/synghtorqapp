@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { DashcamCamera, DashcamRecording } from '@/mocks/vehicleDetailData';
 
 interface Props {
@@ -6,6 +6,11 @@ interface Props {
   recordings: DashcamRecording[];
   vehicleName: string;
   onClose: () => void;
+  liveImageUrl?: string | null;
+  liveStreamUrl?: string | null;
+  liveLoading?: boolean;
+  liveError?: string | null;
+  onLiveCameraChange?: (cameraId: string) => void;
 }
 
 interface Snapshot {
@@ -43,9 +48,68 @@ function getFirstCameraRecording(recordings: DashcamRecording[], cameraId: strin
 }
 
 function getCameraImage(cameraId: string, recordings: DashcamRecording[]) {
-  return cameraFeedImages[cameraId]
-    || getFirstCameraRecording(recordings, cameraId)?.thumbnail
+  return getFirstCameraRecording(recordings, cameraId)?.thumbnail
+    || cameraFeedImages[cameraId]
     || cameraFeedImages.front;
+}
+
+function appendCacheBuster(url: string, tick: number) {
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}t=${tick}`;
+}
+
+function isVideoStreamUrl(url: string) {
+  return /\.(mp4|webm|ogg)(?:$|\?)/i.test(url);
+}
+
+function isHlsStreamUrl(url: string) {
+  return /\.(m3u8)(?:$|\?)/i.test(url);
+}
+
+function isImageStreamUrl(url: string) {
+  return /\.(png|jpe?g|gif|webp)(?:$|\?)/i.test(url);
+}
+
+type HlsPlayerInstance = {
+  loadSource: (url: string) => void;
+  attachMedia: (media: HTMLVideoElement) => void;
+  destroy: () => void;
+  on: (event: string, handler: (...args: any[]) => void) => void;
+};
+
+type HlsPlayerConstructor = {
+  new (config?: { enableWorker?: boolean; lowLatencyMode?: boolean; backBufferLength?: number }): HlsPlayerInstance;
+  isSupported: () => boolean;
+  Events: {
+    MANIFEST_PARSED: string;
+    ERROR: string;
+  };
+};
+
+const HLS_JS_CDN_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js';
+let hlsLoaderPromise: Promise<HlsPlayerConstructor | null> | null = null;
+
+function loadHlsPlayer(): Promise<HlsPlayerConstructor | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+
+  const existing = window as Window & { Hls?: HlsPlayerConstructor };
+  if (existing.Hls) return Promise.resolve(existing.Hls);
+
+  if (!hlsLoaderPromise) {
+    hlsLoaderPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = HLS_JS_CDN_URL;
+      script.async = true;
+      script.onload = () => {
+        const runtime = (window as Window & { Hls?: HlsPlayerConstructor }).Hls ?? null;
+        resolve(runtime);
+      };
+      script.onerror = () => reject(new Error('Unable to load the HLS player.'));
+      document.head.appendChild(script);
+    });
+  }
+
+  return hlsLoaderPromise.catch(() => null);
 }
 
 function formatDateInputLabel(value: string) {
@@ -86,11 +150,21 @@ function formatMinutes(minutes: number) {
   return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
 }
 
-export default function DashcamViewer({ cameras, recordings, vehicleName, onClose }: Props) {
+export default function DashcamViewer({
+  cameras,
+  recordings,
+  vehicleName,
+  onClose,
+  liveImageUrl,
+  liveStreamUrl,
+  liveLoading = false,
+  liveError,
+  onLiveCameraChange,
+}: Props) {
   const historyDates = Array.from(new Set(recordings
     .map((recording) => recording.time.split(',')[0])
     .filter((dateLabel) => dateLabel !== 'Today')));
-  const historyDateOptions = ['Today', ...historyDates];
+  const historyDateOptions = useMemo(() => ['Today', ...historyDates], [historyDates]);
   const [activeCamera, setActiveCamera] = useState<string>(cameras[0]?.id || 'front');
   const [mode, setMode] = useState<'live' | 'history'>('live');
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>('Today');
@@ -103,10 +177,24 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
   const [liveTime, setLiveTime] = useState(new Date());
   const [liveScrubMinutes, setLiveScrubMinutes] = useState(() => getMinutesFromDate(new Date()));
   const [isLiveScrubbing, setIsLiveScrubbing] = useState(false);
+  const [liveFrameTick, setLiveFrameTick] = useState(0);
+  const [playerLoading, setPlayerLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playerError, setPlayerError] = useState<string | null>(null);
   const snapCountRef = useRef(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hlsRef = useRef<HlsPlayerInstance | null>(null);
 
   const activeCam = cameras.find((c) => c.id === activeCamera);
   const activeCameraImage = getCameraImage(activeCamera, recordings);
+  const livePreviewImage = liveImageUrl?.trim() ? appendCacheBuster(liveImageUrl.trim(), liveFrameTick) : activeCameraImage;
+  const liveStreamSource = liveStreamUrl?.trim() || '';
+  const shouldUseVideoPlayer = Boolean(liveStreamSource) && (isVideoStreamUrl(liveStreamSource) || isHlsStreamUrl(liveStreamSource));
+  const canPlayNativeHls = useMemo(() => {
+    if (typeof document === 'undefined') return false;
+    const video = document.createElement('video');
+    return Boolean(video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL'));
+  }, []);
 
   const selectLiveCamera = useCallback((cameraId: string) => {
     setActiveCamera(cameraId);
@@ -114,6 +202,10 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
     setSelectedRecording(null);
     setHistoryExpanded(false);
   }, []);
+
+  useEffect(() => {
+    onLiveCameraChange?.(activeCamera);
+  }, [activeCamera, onLiveCameraChange]);
 
   const changeCamera = useCallback((direction: 'prev' | 'next') => {
     if (cameras.length === 0) return;
@@ -156,7 +248,7 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
     setTimeout(() => setShowSnapToast(false), 2000);
   }, [activeCamera, activeCam]);
 
-  const handleSelectRecording = (rec: DashcamRecording) => {
+  const handleSelectRecording = useCallback((rec: DashcamRecording) => {
     const dateLabel = rec.time.split(',')[0];
     setMode('history');
     setSelectedRecording(rec);
@@ -168,7 +260,7 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
       setActiveCamera(rec.camera);
     }
     setHistoryExpanded(false);
-  };
+  }, [cameras, historyDateOptions]);
 
   const handleCustomHistoryDateChange = (value: string) => {
     const dateLabel = getHistoryDateLabel(value, historyDates);
@@ -195,7 +287,9 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
 
   useEffect(() => {
     if (mode !== 'live') return undefined;
+    if (!liveImageUrl?.trim()) return undefined;
     const timer = window.setInterval(() => {
+      setLiveFrameTick((tick) => tick + 1);
       const now = new Date();
       setLiveTime(now);
       if (!isLiveScrubbing) {
@@ -203,12 +297,106 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [isLiveScrubbing, mode]);
+  }, [isLiveScrubbing, liveImageUrl, mode]);
 
   useEffect(() => {
     if (mode !== 'live') return;
     setLiveScrubMinutes((minutes) => Math.min(minutes, liveMaxScrubMinutes));
   }, [liveMaxScrubMinutes, mode]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const streamUrl = liveStreamSource.trim();
+
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    setPlayerError(null);
+    setPlayerLoading(false);
+    setIsPlaying(false);
+
+    if (!video || !streamUrl || !shouldUseVideoPlayer) return undefined;
+
+    let cancelled = false;
+
+    const cleanupVideo = () => {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+
+    const playVideo = () => {
+      void video.play().catch(() => {
+        if (!cancelled) setPlayerError('The browser blocked autoplay. Use the video controls to start playback.');
+      });
+    };
+
+    const attachNativeSource = () => {
+      setPlayerLoading(true);
+      video.src = streamUrl;
+      video.addEventListener('loadedmetadata', playVideo, { once: true });
+      video.addEventListener('canplay', () => !cancelled && setPlayerLoading(false), { once: true });
+      video.addEventListener('playing', () => !cancelled && setIsPlaying(true), { once: true });
+      return cleanupVideo;
+    };
+
+    if (!isHlsStreamUrl(streamUrl)) {
+      return attachNativeSource();
+    }
+
+    if (canPlayNativeHls) {
+      return attachNativeSource();
+    }
+
+    setPlayerLoading(true);
+    void loadHlsPlayer()
+      .then((HlsPlayer) => {
+        if (cancelled) return;
+        if (!HlsPlayer) {
+          setPlayerLoading(false);
+          setPlayerError('The HLS player could not be loaded.');
+          return;
+        }
+        if (!HlsPlayer.isSupported()) {
+          setPlayerLoading(false);
+          setPlayerError('This browser cannot play the Streamax HLS live stream.');
+          return;
+        }
+
+        const hls = new HlsPlayer({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 30,
+        });
+        hlsRef.current = hls;
+        hls.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
+          if (!cancelled) {
+            setPlayerLoading(false);
+            playVideo();
+          }
+        });
+        hls.on(HlsPlayer.Events.ERROR, (_event, data) => {
+          if (!cancelled && data?.fatal) {
+            setPlayerLoading(false);
+            setPlayerError(data?.details || data?.type || 'Streamax HLS playback failed.');
+          }
+        });
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlayerLoading(false);
+          setPlayerError('The HLS player could not be loaded.');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+      cleanupVideo();
+    };
+  }, [canPlayNativeHls, liveStreamSource, shouldUseVideoPlayer]);
 
   const changeRecording = useCallback((direction: 'prev' | 'next') => {
     if (visibleRecordings.length === 0) return;
@@ -216,7 +404,7 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
     const offset = direction === 'next' ? 1 : -1;
     const nextIndex = (currentIndex + offset + visibleRecordings.length) % visibleRecordings.length;
     handleSelectRecording(visibleRecordings[nextIndex]);
-  }, [selectedRecording?.id, visibleRecordings]);
+  }, [handleSelectRecording, selectedRecording?.id, visibleRecordings]);
 
   const getTimelinePosition = (recording: DashcamRecording) => {
     const timeValue = recording.time.split(', ')[1] || '00:00';
@@ -277,20 +465,80 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
           className="relative mx-4 flex-shrink-0 overflow-hidden rounded-2xl bg-gray-900"
           style={mode === 'history' ? { height: '34vh', minHeight: 210, maxHeight: 300 } : { height: '54vh', minHeight: 340, maxHeight: 470 }}
         >
-          <img
-            src={
-              selectedRecording
-                ? selectedRecording.thumbnail
-                : activeCameraImage
-            }
-            alt={activeCam?.label || 'Dashcam feed'}
-            className={`w-full h-full object-cover transition-opacity duration-150 ${snapFlash ? 'brightness-150' : ''}`}
-            onError={(event) => {
-              if (!selectedRecording) {
+          {selectedRecording ? (
+            <img
+              src={selectedRecording.thumbnail}
+              alt={activeCam?.label || 'Dashcam feed'}
+              className={`w-full h-full object-cover transition-opacity duration-150 ${snapFlash ? 'brightness-150' : ''}`}
+              onError={(event) => {
                 event.currentTarget.src = getFirstCameraRecording(recordings, activeCamera)?.thumbnail || cameraFeedImages.front;
-              }
-            }}
-          />
+              }}
+            />
+          ) : liveLoading ? (
+            <div className="flex h-full w-full items-center justify-center bg-black text-white">
+              <div className="flex flex-col items-center gap-2">
+                <i className="ph ph-circle-notch animate-spin text-2xl" />
+                <span className="text-sm font-medium">Connecting live stream</span>
+              </div>
+            </div>
+          ) : liveStreamSource ? (
+            shouldUseVideoPlayer ? (
+              <div className="relative h-full w-full bg-black">
+              <video
+                ref={videoRef}
+                key={liveStreamSource}
+                autoPlay
+                muted
+                playsInline
+                controls
+                className={`w-full h-full object-cover transition-opacity duration-150 ${snapFlash ? 'brightness-150' : ''}`}
+              />
+                {playerLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
+                    <div className="flex flex-col items-center gap-2">
+                      <i className="ph ph-circle-notch animate-spin text-2xl" />
+                      <span className="text-sm font-medium">Connecting live stream</span>
+                    </div>
+                  </div>
+                )}
+                {playerError && (
+                  <div className="absolute inset-x-3 bottom-3 rounded-xl bg-red-500/90 px-3 py-2 text-xs font-medium text-white shadow-lg">
+                    {playerError}
+                  </div>
+                )}
+              </div>
+            ) : isImageStreamUrl(liveStreamSource) ? (
+              <img
+                key={liveStreamSource}
+                src={appendCacheBuster(liveStreamSource, liveFrameTick)}
+                alt={activeCam?.label || 'Dashcam live stream'}
+                className={`w-full h-full object-cover transition-opacity duration-150 ${snapFlash ? 'brightness-150' : ''}`}
+                onError={(event) => {
+                  event.currentTarget.src = getFirstCameraRecording(recordings, activeCamera)?.thumbnail || cameraFeedImages.front;
+                }}
+              />
+            ) : (
+              <iframe
+                key={liveStreamSource}
+                src={liveStreamSource}
+                title={activeCam?.label || 'Dashcam live stream'}
+                className={`h-full w-full border-0 transition-opacity duration-150 ${snapFlash ? 'brightness-150' : ''}`}
+                allow="autoplay; fullscreen; picture-in-picture"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            )
+          ) : (
+            <img
+              src={livePreviewImage}
+              alt={activeCam?.label || 'Dashcam feed'}
+              className={`w-full h-full object-cover transition-opacity duration-150 ${snapFlash ? 'brightness-150' : ''}`}
+              onError={(event) => {
+                if (!selectedRecording) {
+                  event.currentTarget.src = getFirstCameraRecording(recordings, activeCamera)?.thumbnail || cameraFeedImages.front;
+                }
+              }}
+            />
+          )}
 
           {/* Snap flash */}
           {snapFlash && (
@@ -302,6 +550,12 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
             <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/80 text-white text-[10px] font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               REC
+            </div>
+          )}
+
+          {liveError && !liveStreamSource && !selectedRecording && (
+            <div className="absolute inset-x-3 bottom-12 rounded-xl bg-red-500/90 px-3 py-2 text-xs font-medium text-white shadow-lg">
+              {liveError}
             </div>
           )}
 
@@ -415,6 +669,14 @@ export default function DashcamViewer({ cameras, recordings, vehicleName, onClos
 
         {mode === 'live' && (
           <div className="mx-4 mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-none">
+            {liveStreamSource && (
+              <div className="mb-2 flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-emerald-500">
+                <span>Live source connected</span>
+                <span className="truncate pl-2 normal-case tracking-normal text-emerald-400">
+                  {isImageStreamUrl(liveStreamSource) ? 'Snapshot feed' : 'Stream feed'}
+                </span>
+              </div>
+            )}
             <div className="mb-1 flex items-center justify-between text-[12px] font-bold text-slate-500 dark:text-white/45">
               <span>00:00</span>
               <span className="text-[15px] text-slate-950 dark:text-white">{liveScrubTimeLabel}</span>

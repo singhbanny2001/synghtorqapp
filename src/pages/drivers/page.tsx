@@ -304,8 +304,8 @@ export default function DriversPage() {
     : formStep === 2
       ? 'Set employment details, team assignment, and account status.'
       : formStep === 3
-        ? 'Driver capability is enabled. Fill in the driver-specific information below.'
-        : 'Review the summary and assign vehicles before saving.';
+        ? 'Employee capability is enabled. Fill in the employee-specific information below.'
+        : 'Review the summary and assign units before saving.';
 
   useEffect(() => {
     if (!showFormModal) return;
@@ -315,11 +315,11 @@ export default function DriversPage() {
   return (
     <div className="min-h-full bg-[#f7f8fa] pb-28 transition-colors dark:bg-slate-950">
       <InternalPageHeader
-        title="Drivers"
-        subtitle="Manage driver contacts"
+        title="Employees"
+        subtitle="Manage employee contacts"
         onBack={() => navigate('/more?settings=1')}
         actions={(
-          <button type="button" onClick={openAddModal} className="fleet-module-action-btn" aria-label="Add driver">
+          <button type="button" onClick={openAddModal} className="fleet-module-action-btn" aria-label="Add employee">
             <i className="ph ph-plus text-lg" aria-hidden="true" />
           </button>
         )}
@@ -343,7 +343,7 @@ export default function DriversPage() {
 
         <div className="mt-3 rounded-2xl border border-slate-200/70 bg-white px-3 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Search drivers</span>
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Search employees</span>
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
@@ -396,21 +396,21 @@ export default function DriversPage() {
                     <p className="mt-0.5 text-[12px] font-semibold text-slate-800 dark:text-slate-100">{driver.employeeId || 'New employee'}</p>
                   </div>
                   <div className="rounded-xl bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/80">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">Driver Status</p>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">Employee Status</p>
                     <p className="mt-0.5 text-[12px] font-semibold text-slate-800 dark:text-slate-100">{driver.driverStatus}</p>
                   </div>
                 </div>
 
                 <div className="mt-2 rounded-xl bg-slate-50 px-2.5 py-2 dark:bg-slate-800/80">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">Assigned Vehicles</p>
-                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{assignedVehicles.length} vehicles</span>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">Assigned Units</p>
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{assignedVehicles.length} units</span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {assignedVehicles.length > 0 ? assignedVehicles.map((vehicle) => (
                       <span key={vehicle.id} className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">{vehicle.name}</span>
                     )) : (
-                      <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">No vehicles assigned</span>
+                      <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">No units assigned</span>
                     )}
                   </div>
                 </div>
@@ -423,8 +423,8 @@ export default function DriversPage() {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
                 <i className="ph ph-user text-2xl text-slate-400 dark:text-slate-500" />
               </div>
-              <p className="mt-3 text-body font-semibold text-slate-700 dark:text-slate-200">No drivers found</p>
-              <p className="mt-1 text-caption-sm text-slate-400 dark:text-slate-500">Add a driver or change the search term.</p>
+              <p className="mt-3 text-body font-semibold text-slate-700 dark:text-slate-200">No employees found</p>
+              <p className="mt-1 text-caption-sm text-slate-400 dark:text-slate-500">Add an employee or change the search term.</p>
             </div>
           )}
         </div>
@@ -435,7 +435,7 @@ export default function DriversPage() {
           <div className="flex max-h-[min(82dvh,820px)] w-full max-w-2xl flex-col overflow-hidden rounded-[26px] border border-slate-200 bg-white px-4 py-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">{editingDriver ? 'Edit Driver' : 'Add Employee'}</h3>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">{editingDriver ? 'Edit Employee' : 'Add Employee'}</h3>
                 <p className="mt-0.5 text-[13px] leading-snug text-slate-500 dark:text-slate-400">{stepTitle}</p>
               </div>
               <button type="button" onClick={resetFormState} className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
@@ -483,7 +483,7 @@ export default function DriversPage() {
                     <p className="mt-1 text-[12px] font-semibold text-slate-500 dark:text-slate-400">Set employment details, team assignment, and account status.</p>
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <label className="block"><span className={labelClass()}>Employee ID</span><input value={form.employeeId} onChange={(event) => setForm((current) => ({ ...current, employeeId: event.target.value }))} placeholder="Optional employee number" className={fieldClass()} /></label>
-                      <label className="block"><span className={labelClass()}>Role / Title*</span><input value={form.roleTitle} onChange={(event) => setForm((current) => ({ ...current, roleTitle: event.target.value }))} placeholder="Driver" className={fieldClass()} /></label>
+                      <label className="block"><span className={labelClass()}>Role / Title*</span><input value={form.roleTitle} onChange={(event) => setForm((current) => ({ ...current, roleTitle: event.target.value }))} placeholder="Employee" className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>Department</span><input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} placeholder="Operations, Dispatch, Maintenance..." className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>Team</span><input value={form.team} onChange={(event) => setForm((current) => ({ ...current, team: event.target.value }))} placeholder="Unassigned" className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>Date Joined</span><input value={form.dateJoined} onChange={(event) => setForm((current) => ({ ...current, dateJoined: event.target.value }))} placeholder="25/06/2026" className={fieldClass()} /></label>
@@ -496,21 +496,21 @@ export default function DriversPage() {
 
                 {formStep === 3 && (
                   <div className="rounded-2xl border border-sky-200/70 bg-sky-50/70 p-3 dark:border-sky-500/30 dark:bg-sky-500/10">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300">Driver Info</p>
-                    <p className="mt-1 text-[12px] font-semibold text-sky-700/80 dark:text-sky-200/80">Driver capability is enabled. Fill in the driver-specific information below.</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300">Employee Info</p>
+                    <p className="mt-1 text-[12px] font-semibold text-sky-700/80 dark:text-sky-200/80">Employee capability is enabled. Fill in the employee-specific information below.</p>
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <label className="block"><span className={labelClass()}>License Number</span><input value={form.licenseNumber} onChange={(event) => setForm((current) => ({ ...current, licenseNumber: event.target.value }))} placeholder="LTO-PRO-XXXX-XXXXXX" className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>License Type</span><input value={form.licenseType} onChange={(event) => setForm((current) => ({ ...current, licenseType: event.target.value }))} placeholder="Select type..." className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>License Expiry</span><input value={form.licenseExpiry} onChange={(event) => setForm((current) => ({ ...current, licenseExpiry: event.target.value }))} placeholder="dd/mm/yyyy" className={fieldClass()} /></label>
-                      <label className="block"><span className={labelClass()}>Driver Status</span><select value={form.driverStatus} onChange={(event) => setForm((current) => ({ ...current, driverStatus: event.target.value as DriverRecord['driverStatus'] }))} className={selectClass()}><option value="Available">Available</option><option value="Assigned">Assigned</option><option value="Unavailable">Unavailable</option></select></label>
+                      <label className="block"><span className={labelClass()}>Employee Status</span><select value={form.driverStatus} onChange={(event) => setForm((current) => ({ ...current, driverStatus: event.target.value as DriverRecord['driverStatus'] }))} className={selectClass()}><option value="Available">Available</option><option value="Assigned">Assigned</option><option value="Unavailable">Unavailable</option></select></label>
                       <label className="block"><span className={labelClass()}>Years Experience</span><input value={form.yearsExperience} onChange={(event) => setForm((current) => ({ ...current, yearsExperience: event.target.value }))} placeholder="e.g. 5" className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>Emergency Contact</span><input value={form.emergencyContact} onChange={(event) => setForm((current) => ({ ...current, emergencyContact: event.target.value }))} placeholder="Full name" className={fieldClass()} /></label>
                       <label className="block"><span className={labelClass()}>Emergency Phone</span><input value={form.emergencyPhone} onChange={(event) => setForm((current) => ({ ...current, emergencyPhone: event.target.value }))} placeholder="+63 917 XXX XXXX" className={fieldClass()} /></label>
-                      <label className="block"><span className={labelClass()}>Driver Type</span><select value={form.driverType} onChange={(event) => setForm((current) => ({ ...current, driverType: event.target.value as DriverRecord['driverType'] }))} className={selectClass()}><option>Full Time</option><option>Part Time</option><option>Relief</option><option>Contract</option></select></label>
+                      <label className="block"><span className={labelClass()}>Employee Type</span><select value={form.driverType} onChange={(event) => setForm((current) => ({ ...current, driverType: event.target.value as DriverRecord['driverType'] }))} className={selectClass()}><option>Full Time</option><option>Part Time</option><option>Relief</option><option>Contract</option></select></label>
                     </div>
                     <label className="mt-2 block"><span className={labelClass()}>Certifications</span><input value={form.certifications} onChange={(event) => setForm((current) => ({ ...current, certifications: event.target.value }))} placeholder="e.g. Defensive Driving, HazMat Awareness, First Aid" className={fieldClass()} /></label>
-                    <label className="mt-2 block"><span className={labelClass()}>Vehicle Preferences</span><input value={form.vehiclePreferences} onChange={(event) => setForm((current) => ({ ...current, vehiclePreferences: event.target.value }))} placeholder="e.g. Truck - 6W Fwd, Van - L300" className={fieldClass()} /></label>
-                    <label className="mt-2 block"><span className={labelClass()}>Driver Notes</span><textarea value={form.driverNotes} onChange={(event) => setForm((current) => ({ ...current, driverNotes: event.target.value }))} placeholder="Additional notes about this driver..." rows={3} className={fieldClass()} /></label>
+                    <label className="mt-2 block"><span className={labelClass()}>Unit Preferences</span><input value={form.vehiclePreferences} onChange={(event) => setForm((current) => ({ ...current, vehiclePreferences: event.target.value }))} placeholder="e.g. Truck - 6W Fwd, Van - L300" className={fieldClass()} /></label>
+                    <label className="mt-2 block"><span className={labelClass()}>Employee Notes</span><textarea value={form.driverNotes} onChange={(event) => setForm((current) => ({ ...current, driverNotes: event.target.value }))} placeholder="Additional notes about this employee..." rows={3} className={fieldClass()} /></label>
                   </div>
                 )}
 
@@ -526,12 +526,12 @@ export default function DriversPage() {
                         <p>Status: {form.status}</p>
                         <p>Role: {form.roleTitle || 'Role pending'}</p>
                         <p>Team: {form.team || 'No team assigned'}</p>
-                        <p>Capabilities: Driver</p>
+                        <p>Capabilities: Employee</p>
                       </div>
                     </div>
 
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-                      <p className="text-[12px] font-semibold text-slate-600 dark:text-slate-300">Upload documents here. This is optional, and the selected documents will be saved with the driver.</p>
+                      <p className="text-[12px] font-semibold text-slate-600 dark:text-slate-300">Upload documents here. This is optional, and the selected documents will be saved with the employee.</p>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-[13px] font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
                           <input type="file" multiple className="hidden" onChange={handleDocumentUpload} />
@@ -566,7 +566,7 @@ export default function DriversPage() {
                     </div>
 
                     <div>
-                      <span className={labelClass()}>Assign Vehicle</span>
+                      <span className={labelClass()}>Assign Unit</span>
                       <div className="max-h-44 space-y-1.5 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/80 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/80" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}>
                         {vehicles.map((vehicle) => (
                           <label key={vehicle.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900">
@@ -578,7 +578,7 @@ export default function DriversPage() {
                           </label>
                         ))}
                       </div>
-                      <p className="mt-1.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500">Only one vehicle can be assigned to a driver.</p>
+                      <p className="mt-1.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500">Only one unit can be assigned to an employee.</p>
                     </div>
                   </>
                 )}
@@ -627,9 +627,9 @@ export default function DriversPage() {
                 <i className="ph ph-warning-circle text-[28px]" aria-hidden="true" />
               </div>
             </div>
-            <h3 className="mt-3 text-center text-lg font-black text-slate-900 dark:text-slate-100">Delete Driver</h3>
+            <h3 className="mt-3 text-center text-lg font-black text-slate-900 dark:text-slate-100">Delete Employee</h3>
             <p className="mt-2 text-center text-sm font-semibold text-slate-500 dark:text-slate-400">Are you sure you want to delete <span className="font-bold text-slate-800 dark:text-slate-200">{deleteTarget.name}</span>?</p>
-            <p className="mt-1 text-center text-[12px] text-slate-400 dark:text-slate-500">This will remove the driver from the list.</p>
+            <p className="mt-1 text-center text-[12px] text-slate-400 dark:text-slate-500">This will remove the employee from the list.</p>
             <div className="mt-4 flex justify-center gap-3 border-t border-slate-200 pt-3 dark:border-slate-700">
               <button type="button" onClick={() => setDeleteTarget(null)} className="min-w-[110px] rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">Cancel</button>
               <button type="button" onClick={handleDelete} className="min-w-[110px] rounded-2xl bg-red-500 px-4 py-2.5 text-center text-sm font-bold text-white shadow-[0_10px_24px_rgba(239,68,68,0.28)]">Delete</button>

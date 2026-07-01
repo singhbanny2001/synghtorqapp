@@ -21,17 +21,17 @@ export default function RenewalsCard({ data }: Props) {
   if (todayRenewals.length === 0) return null;
 
   return (
-    <div className="px-4 mt-3">
-      <div className="card-surface rounded-2xl p-4 border border-surface-border">
-        <h3 className="text-[13px] font-bold text-text-primary mb-3">Renewals</h3>
+    <div className="w-full">
+      <div className="card-surface rounded-2xl border border-surface-border px-4 py-3">
+        <h3 className="mb-2.5 text-[14px] font-bold text-text-primary">Renewals</h3>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {todayRenewals.map((r) => {
             const c = statCfg[r.status];
             const pct = Math.min(100, Math.max(5, (r.daysRemaining / 365) * 100));
 
             return (
-              <div key={r.type} className="bg-surface-dark rounded-xl p-2.5">
+              <div key={r.type} className="rounded-xl bg-surface-dark p-2">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-lg bg-surface-card flex items-center justify-center">
@@ -42,7 +42,7 @@ export default function RenewalsCard({ data }: Props) {
                   <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>{r.daysRemaining}d</span>
                 </div>
 
-                <div className="w-full h-1 bg-surface-card rounded-full overflow-hidden mb-1">
+                <div className="mb-1 h-1 w-full overflow-hidden rounded-full bg-surface-card">
                   <div className={`h-full rounded-full ${c.bar}`} style={{ width: `${pct}%` }} />
                 </div>
 

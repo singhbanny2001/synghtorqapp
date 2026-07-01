@@ -1,13 +1,18 @@
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent } from 'react';
 import { useTheme } from '@/context/ThemeContext';
 import BrandWaveBackground from '@/components/BrandWaveBackground';
 import type { Vehicle } from '@/mocks/fleetData';
 import { useAuth } from '@/context/AuthContext';
 import { getVehicleRuntimeStatus } from '@/utils/vehicleStatus';
 import { getVehicleColorClass } from '@/utils/vehicleIconColor';
+import { formatDisplayLocation, hasValidCoordinates } from '@/utils/locationDisplay';
+import { getCachedReverseGeocode, reverseGeocode } from '@/utils/reverseGeocode';
 import DeviceAssetIcon from '@/components/feature/DeviceAssetIcon';
 import { useFleetVehicles } from '@/mocks/fleetStore';
+import { refreshLiveFleetSnapshot } from '@/utils/liveFleet';
+import { supabase } from '@/utils/supabase';
 import {
   ALERT_NOTIFICATIONS_STORAGE_KEY,
   listAlertNotifications,
@@ -15,33 +20,23 @@ import {
 } from '@/mocks/alertData';
 
 const LOGO_URL = '/syngh-torq-logo-electrolyte.png';
+const OSM_TILE_SIZE = 256;
+const EAGLE_MIN_ZOOM = 14;
+const EAGLE_MAX_ZOOM = 19;
 
 type Period = 'today' | 'yesterday' | 'last7Days' | 'lastWeek';
 type MapLayer = 'roadmap' | 'satellite';
 
-const mapPinPositions = [
-  { top: '25%', left: '45%' },
-  { top: '35%', left: '55%' },
-  { top: '55%', left: '40%' },
-  { top: '40%', left: '60%' },
-  { top: '50%', left: '50%' },
-  { top: '62%', left: '57%' },
-  { top: '30%', left: '38%' },
-  { top: '48%', left: '66%' },
-];
-
-const mapLayerOptions: Array<{ key: MapLayer; label: string; icon: string; src: string }> = [
+const mapLayerOptions: Array<{ key: MapLayer; label: string; icon: string }> = [
   {
     key: 'roadmap',
     label: 'Road',
     icon: 'ph ph-map-trifold',
-    src: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d193595.15830869428!2d-74.119763973046!3d40.69766374874431!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x89c24fa5d33f083b%3A0xc80b8f06e177fe62!2sNew%20York%2C%20NY%2C%20USA!5e0!3m2!1sen!2s!4v1699999999999!5m2!1sen!2s',
   },
   {
     key: 'satellite',
     label: 'Satellite',
     icon: 'ph ph-globe-hemisphere-west',
-    src: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d193595.15830869428!2d-74.119763973046!3d40.69766374874431!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x89c24fa5d33f083b%3A0xc80b8f06e177fe62!2sNew%20York%2C%20NY%2C%20USA!5e1!3m2!1sen!2s!4v1699999999999!5m2!1sen!2s',
   },
 ];
 
@@ -200,6 +195,8 @@ const periodLabels: Record<Period, string> = {
 
 const periodOptions: Period[] = ['today', 'yesterday', 'last7Days', 'lastWeek'];
 
+const COORDINATE_PATTERN = /^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$/;
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -208,6 +205,228 @@ function addDays(date: Date, days: number) {
 
 function formatChartDate(date: Date) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function isCoordinateText(value: unknown) {
+  return typeof value === 'string' && COORDINATE_PATTERN.test(value.trim());
+}
+
+function isValidGpsCoordinate(latitude: unknown, longitude: unknown) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  return Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && Math.abs(lat) <= 90
+    && Math.abs(lng) <= 180
+    && !(lat === 0 && lng === 0);
+}
+
+function getLiveMapBounds(vehicles: Vehicle[]) {
+  const coordinates = vehicles
+    .filter((vehicle) => isValidGpsCoordinate(vehicle.latitude, vehicle.longitude))
+    .map((vehicle) => ({ lat: Number(vehicle.latitude), lng: Number(vehicle.longitude) }));
+
+  if (coordinates.length === 0) {
+    return { minLat: 14.45, maxLat: 14.85, minLng: 120.9, maxLng: 121.3 };
+  }
+
+  const minLat = Math.min(...coordinates.map((coord) => coord.lat));
+  const maxLat = Math.max(...coordinates.map((coord) => coord.lat));
+  const minLng = Math.min(...coordinates.map((coord) => coord.lng));
+  const maxLng = Math.max(...coordinates.map((coord) => coord.lng));
+  const latPad = Math.max(0.01, (maxLat - minLat) * 0.18);
+  const lngPad = Math.max(0.01, (maxLng - minLng) * 0.18);
+
+  return {
+    minLat: minLat - latPad,
+    maxLat: maxLat + latPad,
+    minLng: minLng - lngPad,
+    maxLng: maxLng + lngPad,
+  };
+}
+
+function getDashboardLocationInput(vehicle: Vehicle, reverseGeocodeAddress?: string | null) {
+  const row = vehicle as Vehicle & Record<string, unknown>;
+  const cachedReverseGeocode = reverseGeocodeAddress
+    ?? (hasValidCoordinates(vehicle.latitude, vehicle.longitude)
+      ? getCachedReverseGeocode(Number(vehicle.latitude), Number(vehicle.longitude))
+      : null);
+
+  return {
+    place: row.place,
+    placeName: row.placeName,
+    geofence: row.geofence,
+    geofenceName: row.geofenceName,
+    customerLocationName: row.customerLocationName,
+    formatted_address: row.formatted_address,
+    formattedAddress: row.formattedAddress,
+    address: row.address,
+    location_name: row.location_name,
+    locationName: isCoordinateText(vehicle.location) ? undefined : vehicle.location,
+    cachedReverseGeocode,
+    latitude: vehicle.latitude,
+    longitude: vehicle.longitude,
+  };
+}
+
+function getCloseVehicleMapBounds(vehicle: { latitude?: unknown; longitude?: unknown } | null | undefined, zoomLevel = 1) {
+  if (!vehicle || !isValidGpsCoordinate(vehicle.latitude, vehicle.longitude)) return null;
+  const lat = Number(vehicle.latitude);
+  const lng = Number(vehicle.longitude);
+  const zoom = Math.max(1, Math.min(5, zoomLevel));
+  const pad = 0.012 / zoom;
+
+  return {
+    minLat: lat - pad,
+    maxLat: lat + pad,
+    minLng: lng - pad,
+    maxLng: lng + pad,
+  };
+}
+
+function getBoundsCenter(bounds: ReturnType<typeof getLiveMapBounds>) {
+  return {
+    lat: (bounds.minLat + bounds.maxLat) / 2,
+    lng: (bounds.minLng + bounds.maxLng) / 2,
+  };
+}
+
+function getFitZoomForBounds(
+  bounds: ReturnType<typeof getLiveMapBounds>,
+  size: { width: number; height: number },
+  minZoom = 3,
+  maxZoom = 19,
+) {
+  const width = Math.max(1, size.width || 400);
+  const height = Math.max(1, size.height || 300);
+  const topLeft = latLngToWorldPixel(bounds.maxLat, bounds.minLng, 0);
+  const bottomRight = latLngToWorldPixel(bounds.minLat, bounds.maxLng, 0);
+  const spanX = Math.max(1, bottomRight.x - topLeft.x);
+  const spanY = Math.max(1, bottomRight.y - topLeft.y);
+  const zoomX = Math.log2(width / (spanX * 1.12));
+  const zoomY = Math.log2(height / (spanY * 1.12));
+  const zoom = Math.floor(Math.min(zoomX, zoomY));
+  return clampNumber(zoom, minZoom, maxZoom);
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getVehicleLatLng(vehicle: { latitude?: unknown; longitude?: unknown } | null | undefined) {
+  if (!vehicle || !isValidGpsCoordinate(vehicle.latitude, vehicle.longitude)) return null;
+  return {
+    lat: Number(vehicle.latitude),
+    lng: Number(vehicle.longitude),
+  };
+}
+
+function latLngToWorldPixel(lat: number, lng: number, zoom: number) {
+  const sinLat = Math.sin((clampNumber(lat, -85.05112878, 85.05112878) * Math.PI) / 180);
+  const scale = OSM_TILE_SIZE * (2 ** zoom);
+  return {
+    x: ((lng + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+  };
+}
+
+function worldPixelToLatLng(x: number, y: number, zoom: number) {
+  const scale = OSM_TILE_SIZE * (2 ** zoom);
+  const lng = (x / scale) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * y) / scale;
+  const lat = (180 / Math.PI) * Math.atan(Math.sinh(n));
+  return { lat, lng };
+}
+
+function getOsmTileUrl(x: number, y: number, zoom: number) {
+  const subdomains = ['a', 'b', 'c'];
+  const subdomain = subdomains[Math.abs(x + y) % subdomains.length];
+  return `https://${subdomain}.tile.openstreetmap.org/${zoom}/${x}/${y}.png`;
+}
+
+function getEagleMapTiles(center: { lat: number; lng: number } | null, zoom: number, size: { width: number; height: number }) {
+  if (!center) return [];
+
+  const width = Math.max(1, size.width || 400);
+  const height = Math.max(1, size.height || 620);
+  const worldSize = OSM_TILE_SIZE * (2 ** zoom);
+  const tileCount = 2 ** zoom;
+  const centerPixel = latLngToWorldPixel(center.lat, center.lng, zoom);
+  const topLeftX = centerPixel.x - width / 2;
+  const topLeftY = centerPixel.y - height / 2;
+  const startTileX = Math.floor(topLeftX / OSM_TILE_SIZE) - 1;
+  const endTileX = Math.floor((topLeftX + width) / OSM_TILE_SIZE) + 1;
+  const startTileY = Math.floor(topLeftY / OSM_TILE_SIZE) - 1;
+  const endTileY = Math.floor((topLeftY + height) / OSM_TILE_SIZE) + 1;
+  const tiles: Array<{ key: string; src: string; left: number; top: number }> = [];
+
+  for (let tileY = startTileY; tileY <= endTileY; tileY += 1) {
+    if (tileY < 0 || tileY >= tileCount) continue;
+    for (let tileX = startTileX; tileX <= endTileX; tileX += 1) {
+      const wrappedX = ((tileX % tileCount) + tileCount) % tileCount;
+      tiles.push({
+        key: `${zoom}-${wrappedX}-${tileY}-${tileX}`,
+        src: getOsmTileUrl(wrappedX, tileY, zoom),
+        left: tileX * OSM_TILE_SIZE - topLeftX,
+        top: tileY * OSM_TILE_SIZE - topLeftY,
+      });
+    }
+  }
+
+  return tiles;
+}
+
+function getEagleMarkerStyle(
+  center: { lat: number; lng: number } | null,
+  vehicle: { latitude?: unknown; longitude?: unknown } | null | undefined,
+  zoom: number,
+  size: { width: number; height: number },
+) {
+  const vehicleLatLng = getVehicleLatLng(vehicle);
+  if (!center || !vehicleLatLng) return { left: '50%', top: '50%' };
+
+  const centerPixel = latLngToWorldPixel(center.lat, center.lng, zoom);
+  const vehiclePixel = latLngToWorldPixel(vehicleLatLng.lat, vehicleLatLng.lng, zoom);
+
+  return {
+    left: `${(size.width || 400) / 2 + vehiclePixel.x - centerPixel.x}px`,
+    top: `${(size.height || 620) / 2 + vehiclePixel.y - centerPixel.y}px`,
+  };
+}
+
+function getDashboardMarkerLatLng(
+  center: { lat: number; lng: number },
+  vehicle: { latitude?: unknown; longitude?: unknown; id: string },
+  index: number,
+  total: number,
+) {
+  const actual = getVehicleLatLng(vehicle);
+  if (actual) return actual;
+
+  const ringIndex = Math.max(0, index);
+  const angle = (ringIndex / Math.max(1, total)) * Math.PI * 2;
+  const radius = 0.004 + ((ringIndex % 4) * 0.0015);
+
+  return {
+    lat: center.lat + Math.sin(angle) * radius,
+    lng: center.lng + Math.cos(angle) * radius,
+  };
+}
+
+function coordinateToPercent(bounds: ReturnType<typeof getLiveMapBounds>, latitude: unknown, longitude: unknown) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!isValidGpsCoordinate(lat, lng)) return { top: '50%', left: '50%' };
+
+  const latSpan = Math.max(0.0001, bounds.maxLat - bounds.minLat);
+  const lngSpan = Math.max(0.0001, bounds.maxLng - bounds.minLng);
+  const top = ((bounds.maxLat - lat) / latSpan) * 100;
+  const left = ((lng - bounds.minLng) / lngSpan) * 100;
+
+  return {
+    top: `${Math.max(0, Math.min(100, top))}%`,
+    left: `${Math.max(0, Math.min(100, left))}%`,
+  };
 }
 
 function getPerformanceLabels(period: Period, count: number) {
@@ -226,7 +445,7 @@ function getPerformanceLabels(period: Period, count: number) {
     return periodData.lastWeek.fuelChart.map((point) => point.label);
   }
 
-  return periodData[period].fuelChart.map((point) => point.label);
+  return periodData.today.fuelChart.map((point) => point.label);
 }
 
 function getLocalGreeting() {
@@ -236,8 +455,28 @@ function getLocalGreeting() {
   return 'Good Evening';
 }
 
-function getFirstName(name?: string) {
-  return name?.trim().split(/\s+/)[0] || 'there';
+function getFirstName(name?: string, email?: string) {
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (normalizedEmail === 'testnew@gmail.com') return 'test';
+
+  const trimmed = name?.trim();
+  if (!trimmed) return 'there';
+
+  if (trimmed.toLowerCase() === 'testnew@gmail.com') return 'test';
+
+  const firstName = trimmed.split(/\s+/)[0];
+  const normalized = trimmed.toLowerCase();
+  const isPlaceholder =
+    normalized === 'demo' ||
+    normalized.startsWith('demo ') ||
+    normalized === 'sample' ||
+    normalized.startsWith('sample ') ||
+    normalized === 'guest' ||
+    normalized.startsWith('guest ') ||
+    normalized === 'user' ||
+    normalized.startsWith('user ');
+
+  return isPlaceholder ? 'there' : firstName || 'there';
 }
 
 function getAlertNotificationStyle(severity: AlertNotification['severity']) {
@@ -265,7 +504,7 @@ function getAlertNotificationStyle(severity: AlertNotification['severity']) {
 }
 
 function getVehicleTodayMovement(vehicle: Vehicle) {
-  const seed = vehicle.odometer % 37;
+  const seed = Math.abs(Math.round(Number(vehicle.odometer) || 0)) % 37;
   const status = getVehicleRuntimeStatus(vehicle);
   const runMinutes = status === 'moving' ? 212 + seed : status === 'idle' ? 126 + seed : 84 + seed;
   const idleMinutes = status === 'idle' ? 48 + (seed % 18) : 24 + (seed % 14);
@@ -283,10 +522,33 @@ function getVehicleTodayMovement(vehicle: Vehicle) {
 }
 
 function formatDuration(minutes: number) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
+  const totalMinutes = Math.max(0, Math.round(Number.isFinite(minutes) ? minutes : 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
   if (hours <= 0) return `${mins}m`;
+  if (mins === 0) return `${hours}h`;
   return `${hours}h ${mins}m`;
+}
+
+function formatNumber(value: unknown, fallback = 'NA') {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString() : fallback;
+}
+
+function formatSpeed(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number).toString() : '0';
+}
+
+function formatVoltage(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(2)}V` : 'NA';
+}
+
+function formatEmployeeName(value: unknown) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || text.toLowerCase() === 'unassigned') return 'Unassigned';
+  return text.split(/\s+/)[0] || 'Unassigned';
 }
 
 function getMapPinClass(vehicle: { networkStatus?: boolean; status: string }) {
@@ -395,7 +657,7 @@ function StatusBadge({ status }: { status: string }) {
       bg: 'bg-warning/15',
       text: 'text-warning',
       dot: 'bg-warning',
-      label: 'Stopped',
+      label: 'Parked',
     },
     idle: {
       bg: 'bg-info/15',
@@ -473,11 +735,30 @@ export default function Dashboard() {
   const [showVehicleSearch, setShowVehicleSearch] = useState(false);
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [selectedMapVehicle, setSelectedMapVehicle] = useState<string | null>(null);
+  const [isMapZoomLocked, setIsMapZoomLocked] = useState(true);
   const [mapLayer, setMapLayer] = useState<MapLayer>('roadmap');
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
-  const [mapRefreshKey, setMapRefreshKey] = useState(0);
+  const [eagleMapCenter, setEagleMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [eagleMapSize, setEagleMapSize] = useState({ width: 400, height: 620 });
+  const [eagleMapZoom, setEagleMapZoom] = useState(15);
+  const [dashboardMapSize, setDashboardMapSize] = useState({ width: 400, height: 288 });
   const [alertNotifications, setAlertNotifications] = useState<AlertNotification[]>([]);
   const [showAlertNotifications, setShowAlertNotifications] = useState(false);
+  const dashboardMapRef = useRef<HTMLDivElement | null>(null);
+  const eagleMapRef = useRef<HTMLDivElement | null>(null);
+  const eagleDragRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    centerPixel: { x: number; y: number };
+  }>({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    centerPixel: { x: 0, y: 0 },
+  });
   const data = useMemo(() => {
     const baseData = periodData[period];
     const labels = getPerformanceLabels(period, baseData.fuelChart.length);
@@ -494,12 +775,13 @@ export default function Dashboard() {
     };
   }, [period]);
   const greeting = getLocalGreeting();
-  const firstName = getFirstName(user?.name);
-  const todayAlertNotifications = useMemo(() => {
-    const todayKey = new Date().toDateString();
-    return alertNotifications.filter((alert) => new Date(alert.createdAt).toDateString() === todayKey);
-  }, [alertNotifications]);
-  const alertCount = todayAlertNotifications.length;
+  const firstName = getFirstName(user?.name, user?.email);
+  const dashboardAlertNotifications = useMemo(
+    () => alertNotifications.slice(0, 12),
+    [alertNotifications],
+  );
+  const alertCount = dashboardAlertNotifications.length;
+  const alertBadgeLabel = alertCount > 9 ? '9+' : String(alertCount);
   const activeMapLayer = mapLayerOptions.find((layer) => layer.key === mapLayer) ?? mapLayerOptions[0];
   const vehicleStatusCounts = vehicles.reduce(
     (counts, vehicle) => {
@@ -509,8 +791,16 @@ export default function Dashboard() {
     },
     { moving: 0, stopped: 0, idle: 0, offline: 0 },
   );
-  const liveMapVehicles = useMemo(() => vehicles.map((vehicle, index) => {
-    const position = mapPinPositions[index % mapPinPositions.length];
+  const isWaitingForLiveVehicles = vehicles.length === 0;
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedMapVehicle);
+  const [selectedVehicleLocation, setSelectedVehicleLocation] = useState('Address not available');
+  const fleetMapBounds = useMemo(() => getLiveMapBounds(vehicles), [vehicles]);
+  const activeMapBounds = useMemo(
+    () => getCloseVehicleMapBounds(selectedVehicle, 1) ?? fleetMapBounds,
+    [fleetMapBounds, selectedVehicle],
+  );
+  const liveMapVehicles = useMemo(() => vehicles.map((vehicle) => {
+    const position = coordinateToPercent(activeMapBounds, vehicle.latitude, vehicle.longitude);
     const status = getVehicleRuntimeStatus(vehicle);
     return {
       id: vehicle.id,
@@ -521,10 +811,87 @@ export default function Dashboard() {
       status,
       networkStatus: vehicle.networkStatus,
       speed: vehicle.speed,
+      latitude: vehicle.latitude ?? 0,
+      longitude: vehicle.longitude ?? 0,
       top: position.top,
       left: position.left,
     };
-  }), []);
+  }), [vehicles, activeMapBounds]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshFleet = () => {
+      void refreshLiveFleetSnapshot({ force: true }).then(() => {
+        if (cancelled) return;
+      });
+    };
+
+    refreshFleet();
+    const interval = window.setInterval(refreshFleet, isWaitingForLiveVehicles ? 5000 : 15000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshFleet();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isWaitingForLiveVehicles]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveSelectedLocation = async () => {
+      if (!selectedVehicle) {
+        setSelectedVehicleLocation('Address not available');
+        return;
+      }
+
+      if (selectedVehicle.address?.trim()) {
+        setSelectedVehicleLocation(selectedVehicle.address.trim());
+        return;
+      }
+
+      if (selectedVehicle.location && !isCoordinateText(selectedVehicle.location)) {
+        setSelectedVehicleLocation(selectedVehicle.location);
+        return;
+      }
+
+      if (!hasValidCoordinates(selectedVehicle.latitude, selectedVehicle.longitude)) {
+        setSelectedVehicleLocation('Address not available');
+        return;
+      }
+
+      const latitude = Number(selectedVehicle.latitude);
+      const longitude = Number(selectedVehicle.longitude);
+      const cachedAddress = getCachedReverseGeocode(latitude, longitude);
+      if (cachedAddress) {
+        setSelectedVehicleLocation(formatDisplayLocation(getDashboardLocationInput(selectedVehicle, cachedAddress), { fallback: 'Address not available' }));
+        return;
+      }
+
+      setSelectedVehicleLocation('Resolving address...');
+
+      try {
+        const address = await reverseGeocode(latitude, longitude);
+        if (cancelled) return;
+        setSelectedVehicleLocation(formatDisplayLocation(getDashboardLocationInput(selectedVehicle, address), { fallback: 'Address not available' }));
+      } catch {
+        if (cancelled) return;
+        setSelectedVehicleLocation('Address not available');
+      }
+    };
+
+    void resolveSelectedLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedVehicle]);
+
   const filteredMapVehicles = useMemo(() => {
     const query = vehicleSearch.trim().toLowerCase();
     if (!query) return liveMapVehicles;
@@ -537,20 +904,146 @@ export default function Dashboard() {
     ));
   }, [liveMapVehicles, vehicleSearch]);
   const selectedMapVehicleData = liveMapVehicles.find((vehicle) => vehicle.id === selectedMapVehicle);
-  const liveMapSrc = activeMapLayer.src;
-  const visibleMapVehicles = selectedMapVehicleData ? [selectedMapVehicleData] : filteredMapVehicles;
-  const fullscreenMapVehicles = selectedMapVehicleData ? liveMapVehicles : filteredMapVehicles;
-  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedMapVehicle);
+  const visibleMapVehicles = liveMapVehicles;
+  const fullscreenMapVehicles = selectedMapVehicleData ? [selectedMapVehicleData] : filteredMapVehicles;
   const showDashboardMapLabels = Boolean(selectedMapVehicleData) || vehicleSearch.trim().length > 0;
+  const dashboardMapCenter = useMemo(() => getBoundsCenter(fleetMapBounds), [fleetMapBounds]);
+  const dashboardTileZoom = useMemo(
+    () => getFitZoomForBounds(fleetMapBounds, dashboardMapSize, 3, EAGLE_MAX_ZOOM - 1),
+    [dashboardMapSize, fleetMapBounds],
+  );
+  const dashboardMapTiles = useMemo(
+    () => getEagleMapTiles(dashboardMapCenter, dashboardTileZoom, dashboardMapSize),
+    [dashboardMapCenter, dashboardMapSize, dashboardTileZoom],
+  );
+  const dashboardMapMarkers = useMemo(
+    () => visibleMapVehicles.map((vehicle, index, allVehicles) => ({
+      ...vehicle,
+      position: (() => {
+        const point = getDashboardMarkerLatLng(dashboardMapCenter, vehicle, index, allVehicles.length);
+        return getEagleMarkerStyle(
+          dashboardMapCenter,
+          { latitude: point.lat, longitude: point.lng },
+          dashboardTileZoom,
+          dashboardMapSize,
+        );
+      })(),
+    })),
+    [dashboardMapCenter, dashboardMapSize, dashboardTileZoom, visibleMapVehicles],
+  );
+  const eagleMapTiles = useMemo(
+    () => getEagleMapTiles(eagleMapCenter, eagleMapZoom, eagleMapSize),
+    [eagleMapCenter, eagleMapSize, eagleMapZoom],
+  );
+  const eagleSelectedMarkerStyle = useMemo(
+    () => getEagleMarkerStyle(eagleMapCenter, selectedVehicle, eagleMapZoom, eagleMapSize),
+    [eagleMapCenter, eagleMapSize, eagleMapZoom, selectedVehicle],
+  );
+
+  const resetMapSelection = () => {
+    setSelectedMapVehicle(null);
+    setVehicleSearch('');
+    setShowVehicleSearch(false);
+    setIsMapZoomLocked(true);
+    setEagleMapCenter(null);
+    setEagleMapZoom(15);
+  };
+
+  useEffect(() => {
+    const refreshNotifications = async () => {
+      const nextAlerts = await listAlertNotifications({ activeOnly: true, limit: 12 });
+      setAlertNotifications((currentAlerts) => (
+        nextAlerts.length === 0 && currentAlerts.length > 0 ? currentAlerts : nextAlerts
+      ));
+    };
+
+    void refreshNotifications();
+    const alertChannel = supabase
+      .channel('dashboard-alert-sessions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alert_sessions' }, () => {
+        void refreshNotifications();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alert_session_events' }, () => {
+        void refreshNotifications();
+      })
+      .subscribe();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === ALERT_NOTIFICATIONS_STORAGE_KEY) void refreshNotifications();
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      void supabase.removeChannel(alertChannel);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMapFullscreen) return;
+    const mapNode = eagleMapRef.current;
+    if (!mapNode) return;
+
+    const updateSize = () => {
+      const rect = mapNode.getBoundingClientRect();
+      setEagleMapSize({
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(mapNode);
+    return () => observer.disconnect();
+  }, [isMapFullscreen]);
+
+  useEffect(() => {
+    const mapNode = dashboardMapRef.current;
+    if (!mapNode) return;
+
+    const updateSize = () => {
+      const rect = mapNode.getBoundingClientRect();
+      setDashboardMapSize({
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(mapNode);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isMapFullscreen) return;
+    const nextCenter = getVehicleLatLng(selectedVehicle);
+    if (!nextCenter) return;
+    if (isMapZoomLocked || !eagleMapCenter) {
+      setEagleMapCenter((current) => {
+        if (
+          current &&
+          Math.abs(current.lat - nextCenter.lat) < 0.000001 &&
+          Math.abs(current.lng - nextCenter.lng) < 0.000001
+        ) {
+          return current;
+        }
+        return nextCenter;
+      });
+    }
+  }, [eagleMapCenter, isMapFullscreen, isMapZoomLocked, selectedVehicle]);
 
   const handleSelectMapVehicle = (vehicle: typeof liveMapVehicles[number]) => {
     setSelectedMapVehicle(vehicle.id);
     setVehicleSearch(vehicle.name);
     setShowVehicleSearch(false);
+    setEagleMapCenter(getVehicleLatLng(vehicle));
   };
 
   const handleOpenMapVehicle = (vehicle: typeof liveMapVehicles[number]) => {
     handleSelectMapVehicle(vehicle);
+    setIsMapZoomLocked(true);
     setIsMapFullscreen(true);
   };
 
@@ -564,6 +1057,10 @@ export default function Dashboard() {
   };
 
   const getFullscreenPinStyle = (vehicle: typeof liveMapVehicles[number]) => {
+    if (!isMapZoomLocked && selectedMapVehicleData && vehicle.id === selectedMapVehicleData.id) {
+      return { top: '50%', left: '50%' };
+    }
+
     if (!selectedMapVehicleData) return { top: vehicle.top, left: vehicle.left };
 
     const selectedTop = parseFloat(selectedMapVehicleData.top);
@@ -577,6 +1074,43 @@ export default function Dashboard() {
     };
   };
 
+  const handleEagleMapPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (isMapZoomLocked || !eagleMapCenter) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    eagleDragRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      centerPixel: latLngToWorldPixel(eagleMapCenter.lat, eagleMapCenter.lng, eagleMapZoom),
+    };
+  };
+
+  const handleEagleMapPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = eagleDragRef.current;
+    if (!drag.active || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    setEagleMapCenter(worldPixelToLatLng(
+      drag.centerPixel.x - dx,
+      drag.centerPixel.y - dy,
+      eagleMapZoom,
+    ));
+  };
+
+  const handleMapZoom = (direction: 'in' | 'out') => {
+    setEagleMapZoom((value) => clampNumber(value + (direction === 'in' ? 1 : -1), EAGLE_MIN_ZOOM, EAGLE_MAX_ZOOM));
+  };
+
+  const handleEagleMapPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = eagleDragRef.current;
+    if (drag.pointerId === event.pointerId && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    eagleDragRef.current.active = false;
+    eagleDragRef.current.pointerId = null;
+  };
+
   const switchMapLayer = () => {
     setMapLayer((current) => current === 'roadmap' ? 'satellite' : 'roadmap');
   };
@@ -586,23 +1120,10 @@ export default function Dashboard() {
       const firstMovingVehicle = liveMapVehicles.find((vehicle) => vehicle.status === 'moving');
       setSelectedMapVehicle((firstMovingVehicle || liveMapVehicles[0])?.id || null);
     }
+    setIsMapZoomLocked(true);
+    setEagleMapZoom(15);
     setIsMapFullscreen(true);
   };
-
-  useEffect(() => {
-    const refreshNotifications = async () => {
-      setAlertNotifications(await listAlertNotifications());
-    };
-
-    void refreshNotifications();
-
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === ALERT_NOTIFICATIONS_STORAGE_KEY) void refreshNotifications();
-    };
-
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
 
   return (
     <div className="premium-page">
@@ -637,8 +1158,8 @@ export default function Dashboard() {
               >
                 <i className="ph ph-bell text-text-secondary text-lg" />
                 {alertCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full flex items-center justify-center">
-                    <span className="text-[9px] font-bold text-white">{alertCount}</span>
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 rounded-full bg-danger px-1 flex items-center justify-center">
+                    <span className="text-[9px] font-bold leading-none text-white">{alertBadgeLabel}</span>
                   </span>
                 )}
               </button>
@@ -664,16 +1185,16 @@ export default function Dashboard() {
                     </div>
 
                     <div className="max-h-[360px] overflow-y-auto p-2">
-                      {todayAlertNotifications.length === 0 ? (
+                      {dashboardAlertNotifications.length === 0 ? (
                         <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-success/10">
                             <i className="ph ph-check-circle text-lg text-success" />
                           </div>
-                          <p className="text-[13px] font-bold text-text-primary">No new alerts</p>
-                          <p className="mt-1 text-[11px] text-text-tertiary">New notifications will appear here.</p>
+                          <p className="text-[13px] font-bold text-text-primary">No alerts found</p>
+                          <p className="mt-1 text-[11px] text-text-tertiary">Website alert sessions will appear here.</p>
                         </div>
                       ) : (
-                        todayAlertNotifications.map((alert) => {
+                        dashboardAlertNotifications.map((alert) => {
                           const style = getAlertNotificationStyle(alert.severity);
                           return (
                             <div key={alert.id} className="flex gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-surface-subtle">
@@ -712,7 +1233,7 @@ export default function Dashboard() {
         <div className="dashboard-kpi-grid grid grid-cols-2 gap-2 md:gap-3">
           <StatCard
             label="Moving"
-            value={vehicleStatusCounts.moving}
+            value={isWaitingForLiveVehicles ? '...' : vehicleStatusCounts.moving}
             subValue="12 today"
             iconBg="bg-success/15"
             icon="ph-fill ph-play"
@@ -722,19 +1243,19 @@ export default function Dashboard() {
             onClick={() => navigate('/vehicles?filter=Moving')}
           />
           <StatCard
-            label="Stopped"
-            value={vehicleStatusCounts.stopped}
+            label="Parked"
+            value={isWaitingForLiveVehicles ? '...' : vehicleStatusCounts.stopped}
             subValue="3 today"
             iconBg="bg-warning/15"
             icon="ph-fill ph-pause"
             iconColor="text-warning"
             trend="up"
             tone="stopped"
-            onClick={() => navigate('/vehicles?filter=Stopped')}
+            onClick={() => navigate('/vehicles?filter=Parked')}
           />
           <StatCard
             label="Idle"
-            value={vehicleStatusCounts.idle}
+            value={isWaitingForLiveVehicles ? '...' : vehicleStatusCounts.idle}
             subValue="5 today"
             iconBg="bg-info/15"
             icon="ph-fill ph-clock"
@@ -745,7 +1266,7 @@ export default function Dashboard() {
           />
           <StatCard
             label="Offline"
-            value={vehicleStatusCounts.offline}
+            value={isWaitingForLiveVehicles ? '...' : vehicleStatusCounts.offline}
             subValue="1 today"
             iconBg="bg-danger/15"
             icon="ph ph-prohibit"
@@ -788,7 +1309,7 @@ export default function Dashboard() {
                 <input
                   value={vehicleSearch}
                   onChange={(event) => setVehicleSearch(event.target.value)}
-                  placeholder="Search map vehicles..."
+                  placeholder="Search map units..."
                   className="w-full rounded-lg border border-surface-border bg-surface-input py-2 pl-9 pr-3 text-caption text-text-primary outline-none placeholder-text-tertiary focus:border-primary/50"
                   autoFocus
                 />
@@ -796,7 +1317,7 @@ export default function Dashboard() {
             </div>
             <div className="mt-2 max-h-44 overflow-y-auto">
               {filteredMapVehicles.length === 0 ? (
-                <div className="px-2 py-3 text-center text-caption-sm text-text-tertiary">No vehicles found</div>
+                <div className="px-2 py-3 text-center text-caption-sm text-text-tertiary">No units found</div>
               ) : filteredMapVehicles.map((vehicle) => (
                 <button
                   key={vehicle.id}
@@ -815,34 +1336,41 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-          <div className="card-surface dashboard-map-frame overflow-hidden relative h-72 md:h-[420px] border border-surface-border">
-            <iframe
-              className="dashboard-map-iframe"
-              width="100%"
-              height="100%"
-              style={{ border: 0 }}
-              loading="lazy"
-              allowFullScreen
-              referrerPolicy="no-referrer-when-downgrade"
-              src={liveMapSrc}
-            />
+          <div ref={dashboardMapRef} className="card-surface dashboard-map-frame overflow-hidden relative h-[65vh] min-h-[520px] md:h-[72vh] border border-surface-border">
+            <div className="absolute inset-0 overflow-hidden">
+              {dashboardMapTiles.map((tile) => (
+                <img
+                  key={tile.key}
+                  src={tile.src}
+                  alt=""
+                  draggable={false}
+                  className="dashboard-eagle-tile"
+                  style={{
+                    left: `${tile.left}px`,
+                    top: `${tile.top}px`,
+                  }}
+                />
+              ))}
+              <div className="dashboard-eagle-attribution">
+                © OpenStreetMap contributors
+              </div>
+            </div>
             <button
               type="button"
               onClick={openEagleView}
-              className="absolute inset-0 z-[3] bg-transparent"
+              className="absolute inset-0 z-[2] bg-transparent"
               aria-label="Open Eagle View map"
             />
-            {/* Vehicle Pins Overlay */}
-            <div className="absolute inset-0 z-[4] pointer-events-none">
-              {visibleMapVehicles.map((v) => (
+            <div className="absolute inset-0 z-[3] pointer-events-none">
+              {dashboardMapMarkers.map((v) => (
                 <button
                   type="button"
                   key={v.id}
                   onClick={() => handleOpenMapVehicle(v)}
-                  className={`dashboard-map-pin absolute flex flex-col items-center transition-transform pointer-events-auto ${
+                  className={`dashboard-map-pin absolute flex flex-col items-center pointer-events-auto ${
                     selectedMapVehicle === v.id ? 'dashboard-map-pin-selected' : ''
                   }`}
-                  style={{ top: v.top, left: v.left }}
+                  style={v.position}
                   aria-label={`Open ${v.name} in Eagle View`}
                 >
                   <div className={`dashboard-map-pin-dot ${getMapPinClass(v)}`}>
@@ -856,83 +1384,113 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            {selectedMapVehicleData && (
-              <button
-                onClick={() => {
-                  setSelectedMapVehicle(null);
-                  setVehicleSearch('');
-                }}
-                className="absolute bottom-3 left-3 z-[5] rounded-lg border border-surface-border bg-surface-card/90 px-2.5 py-1.5 text-[10px] font-semibold text-text-secondary shadow-card backdrop-blur-sm btn-press"
-              >
-                Show all
-              </button>
-            )}
           </div>
       </div>
 
       {isMapFullscreen && (
         <div className="dashboard-map-fullscreen fixed inset-0 z-[80] bg-surface-dark">
-          <iframe
-            className={`dashboard-map-iframe dashboard-map-iframe-fullscreen ${selectedMapVehicleData ? 'dashboard-map-iframe-zoomed' : ''}`}
-            key={`eagle-map-${mapRefreshKey}`}
-            width="100%"
-            height="100%"
-            style={{
-              border: 0,
-              transformOrigin: selectedMapVehicleData
-                ? `${selectedMapVehicleData.left} ${selectedMapVehicleData.top}`
-                : undefined,
-            }}
-            loading="lazy"
-            allowFullScreen
-            referrerPolicy="no-referrer-when-downgrade"
-            src={liveMapSrc}
-          />
+          <div
+            ref={eagleMapRef}
+            className={`dashboard-eagle-tile-map ${isMapZoomLocked ? 'is-locked' : 'is-draggable'}`}
+            onPointerDown={handleEagleMapPointerDown}
+            onPointerMove={handleEagleMapPointerMove}
+            onPointerUp={handleEagleMapPointerUp}
+            onPointerCancel={handleEagleMapPointerUp}
+            role="application"
+            aria-label="Eagle View map"
+          >
+            {eagleMapTiles.map((tile) => (
+              <img
+                key={tile.key}
+                src={tile.src}
+                alt=""
+                draggable={false}
+                className="dashboard-eagle-tile"
+                style={{
+                  left: `${tile.left}px`,
+                  top: `${tile.top}px`,
+                }}
+              />
+            ))}
+            <div className="dashboard-eagle-attribution">
+              © OpenStreetMap contributors
+            </div>
+          </div>
           <div className="absolute inset-0 pointer-events-none">
-            {fullscreenMapVehicles.map((v) => (
+            {fullscreenMapVehicles.map((v) => {
+              const isSelected = selectedMapVehicle === v.id;
+              return (
               <button
                 type="button"
                 key={v.id}
                 onClick={() => handleSelectMapVehicle(v)}
-                className={`dashboard-map-pin absolute flex flex-col items-center transition-transform pointer-events-auto ${
-                  selectedMapVehicle === v.id ? 'dashboard-map-pin-selected' : ''
+                className={`dashboard-map-pin absolute flex flex-col items-center ${
+                  isMapZoomLocked ? 'pointer-events-auto' : 'pointer-events-none'
+                } ${
+                  isSelected ? 'dashboard-map-pin-selected' : ''
                 }`}
-                style={getFullscreenPinStyle(v)}
+                style={isSelected ? eagleSelectedMarkerStyle : getFullscreenPinStyle(v)}
                 aria-label={`Show ${v.name} details`}
               >
+                {isSelected && (
+                  <div className="dashboard-map-vehicle-label dashboard-map-vehicle-label-fullscreen">
+                    <span>{v.name}</span>
+                  </div>
+                )}
                 <div className={`dashboard-map-pin-dot dashboard-map-pin-dot-fullscreen ${getMapPinClass(v)}`}>
-                  <i className="ph-fill ph-car text-white text-sm" />
-                </div>
-                <div className="dashboard-map-vehicle-label dashboard-map-vehicle-label-fullscreen">
-                  <span>{v.name}</span>
+                  <i className="ph-fill ph-car text-white text-[10px]" />
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
           <div className="absolute left-4 top-[calc(1rem+env(safe-area-inset-top,0px))] rounded-xl border border-surface-border bg-surface-card/95 px-3 py-2 text-caption font-semibold text-text-primary shadow-xl backdrop-blur-sm">
             Eagle View · {selectedMapVehicleData ? selectedMapVehicleData.name : activeMapLayer.label}
           </div>
           <button
-            onClick={() => setIsMapFullscreen(false)}
+            type="button"
+            onClick={() => setIsMapZoomLocked((value) => !value)}
+            className="map-control-btn absolute right-16 top-[calc(1rem+env(safe-area-inset-top,0px))] h-10 w-10 btn-press"
+            aria-label={isMapZoomLocked ? 'Unlock map movement' : 'Lock map movement'}
+          >
+            <i className={`ph ${isMapZoomLocked ? 'ph-lock-simple' : 'ph-lock-open'}`} />
+          </button>
+          <div className="absolute right-28 top-[calc(1rem+env(safe-area-inset-top,0px))] flex flex-col overflow-hidden rounded-xl border border-surface-border bg-surface-card/95 shadow-xl backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={() => handleMapZoom('in')}
+              className="map-control-btn h-10 w-10 rounded-none border-0 border-b border-surface-border btn-press"
+              aria-label="Zoom in"
+              disabled={eagleMapZoom >= EAGLE_MAX_ZOOM}
+            >
+              <i className="ph ph-plus" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleMapZoom('out')}
+              className="map-control-btn h-10 w-10 rounded-none border-0 btn-press"
+              aria-label="Zoom out"
+              disabled={eagleMapZoom <= EAGLE_MIN_ZOOM}
+            >
+              <i className="ph ph-minus" />
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setIsMapFullscreen(false);
+              resetMapSelection();
+            }}
             className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] flex h-10 w-10 items-center justify-center rounded-xl border border-surface-border bg-surface-card/95 text-text-secondary shadow-xl backdrop-blur-sm btn-press"
             aria-label="Close full-screen map"
           >
             <i className="ph ph-x text-lg" />
-          </button>
-          <button
-            onClick={() => setMapRefreshKey((key) => key + 1)}
-            className="dashboard-eagle-load-btn btn-press"
-            aria-label="Load updated map"
-          >
-            <i className="ph ph-arrow-clockwise" />
-            <span>Load</span>
           </button>
           <div className="dashboard-eagle-nav">
             <button
               type="button"
               onClick={() => goToMapVehicle('previous')}
               className="btn-press"
-              aria-label="Previous vehicle"
+              aria-label="Previous unit"
             >
               <i className="ph ph-caret-left" />
             </button>
@@ -940,7 +1498,7 @@ export default function Dashboard() {
               type="button"
               onClick={() => goToMapVehicle('next')}
               className="btn-press"
-              aria-label="Next vehicle"
+              aria-label="Next unit"
             >
               <i className="ph ph-caret-right" />
             </button>
@@ -948,8 +1506,65 @@ export default function Dashboard() {
           {selectedVehicle && (
             <div className="dashboard-eagle-details">
               {(() => {
-                const fuelLiters = Math.round((selectedVehicle.fuelLevel / 100) * selectedVehicle.fuelCapacityLiters);
+                const hasFuelSensor = selectedVehicle.hasFuelSensor && selectedVehicle.fuelLevel != null;
+                const hasTemperatureSensor = selectedVehicle.temperature != null;
                 const movement = getVehicleTodayMovement(selectedVehicle);
+                const sensorItems = [
+                  {
+                    icon: 'ph ph-gauge text-warning',
+                    label: 'Odometer',
+                    value: `${formatNumber(selectedVehicle.odometer)} KM`,
+                    show: true,
+                  },
+                  {
+                    icon: `ph ph-power ${selectedVehicle.ignition ? 'text-success' : 'text-danger'}`,
+                    label: 'Ignition',
+                    value: selectedVehicle.ignition ? 'On' : 'Off',
+                    show: true,
+                  },
+                  {
+                    icon: `ph ph-cell-signal-full ${selectedVehicle.networkStatus ? 'text-success' : 'text-text-tertiary'}`,
+                    label: 'Network',
+                    value: selectedVehicle.networkStatus ? 'OK' : 'NA',
+                    show: true,
+                  },
+                  ...(selectedVehicle.acStatus === null ? [] : [{
+                    icon: `ph ph-snowflake ${selectedVehicle.acStatus ? 'text-info' : 'text-text-tertiary'}`,
+                    label: 'AC',
+                    value: selectedVehicle.acStatus ? 'On' : 'NA',
+                    show: true,
+                  }]),
+                  ...(hasFuelSensor ? [{
+                    icon: 'ph ph-gas-pump text-warning',
+                    label: 'Fuel',
+                    value: `${formatNumber(selectedVehicle.fuelLevel ?? 0, '0')}L`,
+                    show: true,
+                  }] : []),
+                  ...(hasTemperatureSensor ? [{
+                    icon: 'ph ph-thermometer text-info',
+                    label: 'Temp',
+                    value: `${formatNumber(selectedVehicle.temperature)}°C`,
+                    show: true,
+                  }] : []),
+                  ...(selectedVehicle.doorStatus === null ? [] : [{
+                    icon: `ph ph-door ${selectedVehicle.doorStatus ? 'text-danger' : 'text-text-tertiary'}`,
+                    label: 'Door',
+                    value: selectedVehicle.doorStatus ? 'Open' : 'Closed',
+                    show: true,
+                  }]),
+                  {
+                    icon: `ph ph-plug-charging ${selectedVehicle.charging ? 'text-success' : 'text-danger'}`,
+                    label: 'Charging',
+                    value: selectedVehicle.charging ? 'On' : 'Off',
+                    show: true,
+                  },
+                  {
+                    icon: 'ph ph-battery-charging text-primary',
+                    label: 'Battery',
+                    value: `${formatNumber(selectedVehicle.batteryLevel)}%`,
+                    show: true,
+                  },
+                ].filter((item) => item.show);
 
                 return (
                   <>
@@ -970,11 +1585,11 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-display font-bold leading-none text-text-primary">{selectedVehicle.speed}</p>
+                      <p className="text-display font-bold leading-none text-text-primary">{formatSpeed(selectedVehicle.speed)}</p>
                       <p className="text-caption-sm text-text-secondary">Km/h</p>
                     </div>
                   </div>
-                  <p className="mt-2 line-clamp-2 text-caption-sm text-text-secondary">{selectedVehicle.location}</p>
+                  <p className="mt-2.5 mb-1 line-clamp-2 text-caption-sm leading-snug text-text-secondary">{selectedVehicleLocation}</p>
                 </div>
               </div>
               <div className="dashboard-eagle-movement" aria-label={`Today movement run ${formatDuration(movement.runMinutes)}, idle ${formatDuration(movement.idleMinutes)}, stop ${formatDuration(movement.stopMinutes)}`}>
@@ -994,62 +1609,24 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="dashboard-eagle-sensors">
-                <div>
-                  <i className="ph ph-gauge text-warning" />
-                  <span>Odometer</span>
-                  <strong>{selectedVehicle.odometer.toLocaleString()} KM</strong>
-                </div>
-                <div>
-                  <i className={`ph ph-power ${selectedVehicle.ignition ? 'text-success' : 'text-danger'}`} />
-                  <span>Ignition</span>
-                  <strong>{selectedVehicle.ignition ? 'On' : 'Off'}</strong>
-                </div>
-                <div>
-                  <i className={`ph ph-cell-signal-full ${selectedVehicle.networkStatus ? 'text-success' : 'text-text-tertiary'}`} />
-                  <span>Network</span>
-                  <strong>{selectedVehicle.networkStatus ? 'OK' : 'NA'}</strong>
-                </div>
-                <div>
-                  <i className={`ph ph-snowflake ${selectedVehicle.acStatus ? 'text-info' : 'text-text-tertiary'}`} />
-                  <span>AC</span>
-                  <strong>{selectedVehicle.acStatus ? 'On' : 'NA'}</strong>
-                </div>
-                <div>
-                  <i className="ph ph-gas-pump text-warning" />
-                  <span>Fuel</span>
-                  <strong>{fuelLiters}L</strong>
-                </div>
-                <div>
-                  <i className="ph ph-thermometer text-info" />
-                  <span>Temp</span>
-                  <strong>{selectedVehicle.temperature}°C</strong>
-                </div>
-                <div>
-                  <i className={`ph ph-door ${selectedVehicle.doorStatus ? 'text-danger' : 'text-text-tertiary'}`} />
-                  <span>Door</span>
-                  <strong>{selectedVehicle.doorStatus ? 'Open' : 'Closed'}</strong>
-                </div>
-                <div>
-                  <i className={`ph ph-plug-charging ${selectedVehicle.charging ? 'text-success' : 'text-danger'}`} />
-                  <span>Charging</span>
-                  <strong>{selectedVehicle.charging ? 'On' : 'Off'}</strong>
-                </div>
-                <div>
-                  <i className="ph ph-battery-charging text-primary" />
-                  <span>Battery</span>
-                  <strong>{selectedVehicle.batteryLevel}%</strong>
-                </div>
+                {sensorItems.map((item) => (
+                  <div key={item.label}>
+                    <i className={item.icon} />
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
                 <div>
                   <i className="ph ph-lightning text-success" />
                   <span>Voltage</span>
-                  <strong>{selectedVehicle.batteryVoltage}V</strong>
+                  <strong>{formatVoltage(selectedVehicle.batteryVoltage)}</strong>
                 </div>
               </div>
               <div className="dashboard-eagle-stats">
-                <div><span>Distance</span><strong>{selectedVehicle.odometer.toLocaleString()}</strong></div>
-                <div><span>Driver</span><strong>{selectedVehicle.driver.split(' ')[0]}</strong></div>
+                <div><span>Distance</span><strong>{formatNumber(selectedVehicle.odometer)}</strong></div>
+                <div><span>Employee</span><strong>{formatEmployeeName(selectedVehicle.driver)}</strong></div>
                 <div><span>Status</span><strong className="capitalize">{getVehicleRuntimeStatus(selectedVehicle)}</strong></div>
-                <div><span>Alerts</span><strong>{selectedVehicle.alerts}</strong></div>
+                <div><span>Alerts</span><strong>{formatNumber(selectedVehicle.alerts, '0')}</strong></div>
               </div>
                   </>
                 );

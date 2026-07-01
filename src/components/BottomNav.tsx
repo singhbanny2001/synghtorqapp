@@ -16,7 +16,7 @@ const LOGO_URL = '/syngh-torq-logo-electrolyte.png';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: Gauge },
-  { path: '/vehicles', label: 'Vehicles', icon: CarFront },
+  { path: '/vehicles', label: 'Units', icon: CarFront },
   { path: '/playback', label: 'Playback', icon: PlayCircle },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/services', label: 'Reminders', icon: Wrench },

@@ -36,7 +36,7 @@ const emptyRuleForm: AlertRuleInput = {
   severity: 'medium',
   enabled: true,
   description: '',
-  vehicleScope: 'All Vehicles',
+  vehicleScope: 'All Units',
 };
 
 export default function Alerts() {
@@ -261,7 +261,7 @@ export default function Alerts() {
               <input
                 value={ruleForm.vehicleScope}
                 onChange={(event) => setRuleForm((form) => ({ ...form, vehicleScope: event.target.value }))}
-                placeholder="Vehicle scope"
+                placeholder="Unit scope"
                 className="w-full rounded-xl border border-surface-border bg-surface-input px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary/50"
               />
               <label className="flex items-center justify-between rounded-xl border border-surface-border bg-surface-input px-3 py-2.5">

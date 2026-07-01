@@ -1,44 +1,47 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, type PropsWithChildren, useMemo } from 'react';
-import { accounts, type Account } from '@/mocks/accountData';
+import { createContext, useContext, useMemo, type PropsWithChildren } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import type { Account } from '@/mocks/accountData';
 
-// 1. Define the shape of the context data
 interface AccountContextType {
-  activeAccount: Account;
+  activeAccount: Account | null;
   switchAccount: (accountId: string) => void;
   availableAccounts: Account[];
 }
 
-// 2. Create the context with an undefined initial value
 const AccountContext = createContext<AccountContextType | undefined>(undefined);
 
-// 3. Create the Provider component that will wrap your app
-export function AccountProvider({ children }: PropsWithChildren) {
-  // Find the initially active account from mock data, or default to the first one
-  const initialAccount = useMemo(() => accounts.find(acc => acc.isActive) || accounts[0], []);
-  
-  const [activeAccount, setActiveAccount] = useState<Account>(initialAccount);
+function buildAccountFromUser(user: ReturnType<typeof useAuth>['user']): Account | null {
+  if (!user) return null;
 
-  const switchAccount = (accountId: string) => {
-    const newAccount = accounts.find(acc => acc.id === accountId);
-    if (newAccount) {
-      setActiveAccount(newAccount);
-    } else {
-      console.error(`Account with id ${accountId} not found.`);
-    }
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    email: user.email,
+    phone: user.companyName || '',
+    avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'A')}&background=0084FF&color=fff`,
+    isActive: true,
   };
-
-  // The value that will be available to all children
-  const value = {
-    activeAccount,
-    switchAccount,
-    availableAccounts: accounts,
-  };
-
-  return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }
 
-// 4. Create a custom hook for easy consumption of the context
+export function AccountProvider({ children }: PropsWithChildren) {
+  const { user } = useAuth();
+  const activeAccount = useMemo(() => buildAccountFromUser(user), [user]);
+
+  return (
+    <AccountContext.Provider
+      value={{
+        activeAccount,
+        switchAccount: () => {},
+        availableAccounts: activeAccount ? [activeAccount] : [],
+      }}
+    >
+      {children}
+    </AccountContext.Provider>
+  );
+}
+
 export function useAccount() {
   const context = useContext(AccountContext);
   if (context === undefined) {

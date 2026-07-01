@@ -52,7 +52,7 @@ export default function VehicleRender({
       {showImage ? (
         <img
           src={image}
-          alt={name ? `${name} vehicle render` : 'Vehicle render'}
+          alt={name ? `${name} unit render` : 'Unit render'}
           className="vehicle-render-image"
           loading="lazy"
           onError={() => setImageFailed(true)}

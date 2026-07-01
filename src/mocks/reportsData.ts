@@ -83,6 +83,11 @@ export interface EventReport {
   eventTime?: string;
   lat: number;
   lng: number;
+  totalTheftLiters?: number;
+  fromLevelLiters?: number;
+  toLevelLiters?: number;
+  startTime?: string;
+  endTime?: string;
 }
 
 export const vehicleReports: VehicleReport[] = [
@@ -166,7 +171,7 @@ export const costReports: CostReport[] = [
 export const eventReports: EventReport[] = [
   { id: 'e1', vehicle: 'TK-101', type: 'Overspeed', severity: 'warning', description: 'Speed reached 112 km/h on Route 1 (limit: 100)', location: 'Route 1, Princeton, NJ', time: '10:42 AM', lat: 40.3573, lng: -74.6672 },
   { id: 'e2', vehicle: 'TK-103', type: 'Harsh Braking', severity: 'warning', description: 'Hard brake detected at 65 km/h, deceleration 8.2 m/s', location: 'I-95 N, Mile 88', time: '09:15 AM', lat: 40.7357, lng: -74.1724 },
-  { id: 'e3', vehicle: 'TK-103', type: 'Fuel Theft', severity: 'critical', description: 'Anomalous fuel level drop of 8.5L during off-hours', location: 'Loading Dock B, Trenton', time: '02:30 AM', lat: 40.2206, lng: -74.7597 },
+  { id: 'e3', vehicle: 'TK-103', type: 'Fuel Theft', severity: 'critical', description: 'Anomalous fuel level drop of 8.5L during off-hours', location: 'Loading Dock B, Trenton', time: '02:30 AM', lat: 40.2206, lng: -74.7597, totalTheftLiters: 8.5, fromLevelLiters: 54.0, toLevelLiters: 45.5, startTime: '02:12 AM', endTime: '02:30 AM' },
   { id: 'e4', vehicle: 'TK-105', type: 'Overspeed', severity: 'warning', description: 'Speed reached 118 km/h on Garden State Parkway (limit: 100)', location: 'Garden State Parkway S, Mile 88', time: '11:20 AM', lat: 40.2000, lng: -74.0200 },
   { id: 'e5', vehicle: 'TK-105', type: 'Harsh Acceleration', severity: 'notice', description: 'Rapid acceleration from 0 to 85 km/h in 6.2 seconds', location: 'Garden State Parkway S, Mile 92', time: '11:25 AM', lat: 40.1900, lng: -74.0000 },
   { id: 'e6', vehicle: 'ISABELA 04', type: 'Idle Alert', severity: 'notice', description: 'Vehicle idle for 18 minutes at Princeton Plaza', location: 'Princeton Plaza, NJ', time: '08:45 AM', lat: 40.3573, lng: -74.6672 },
@@ -289,6 +294,12 @@ export interface FuelFillingRecord {
   pricePerLiter: number;
   odometerReading: number;
   fuelType: string;
+  lat: number;
+  lng: number;
+  fromLevelLiters?: number;
+  toLevelLiters?: number;
+  startTime?: string;
+  endTime?: string;
 }
 
 export interface IdleRecord {
@@ -360,14 +371,14 @@ export const acRecords: ACRecord[] = [
 ];
 
 export const fuelFillingRecords: FuelFillingRecord[] = [
-  { id: 'ff1', vehicleId: 'v1', vehicle: 'TK-101', plate: 'FL-2024-01', date: '2026-06-15', time: '07:45 AM', location: 'Princeton, NJ', station: 'Shell - Route 1', quantity: 28.5, cost: 3420, pricePerLiter: 120, odometerReading: 48250, fuelType: 'Diesel' },
-  { id: 'ff2', vehicleId: 'v2', vehicle: 'ISABELA 04', plate: 'TK-102', date: '2026-06-15', time: '06:30 AM', location: 'Trenton, NJ', station: 'Petron - North Olden', quantity: 24.2, cost: 2904, pricePerLiter: 120, odometerReading: 35120, fuelType: 'Diesel' },
-  { id: 'ff3', vehicleId: 'v3', vehicle: 'TK-103', plate: 'FL-2024-03', date: '2026-06-15', time: '05:15 AM', location: 'Trenton, NJ', station: 'Caltex - Route 206', quantity: 38.0, cost: 4560, pricePerLiter: 120, odometerReading: 62180, fuelType: 'Diesel' },
-  { id: 'ff4', vehicleId: 'v4', vehicle: 'TK-104', plate: 'FL-2024-04', date: '2026-06-14', time: '08:00 AM', location: 'Edison, NJ', station: 'Shell - Oak Tree Rd', quantity: 21.8, cost: 2616, pricePerLiter: 120, odometerReading: 28940, fuelType: 'Diesel' },
-  { id: 'ff5', vehicleId: 'v5', vehicle: 'TK-105', plate: 'FL-2024-05', date: '2026-06-14', time: '07:30 AM', location: 'New Brunswick, NJ', station: 'Tesla Supercharger - Rt 27', quantity: 18.5, cost: 2220, pricePerLiter: 120, odometerReading: 41050, fuelType: 'Electric' },
-  { id: 'ff6', vehicleId: 'v6', vehicle: 'TK-106', plate: 'FL-2024-06', date: '2026-06-13', time: '06:45 AM', location: 'Hillsborough, NJ', station: 'Petron - Amwell Rd', quantity: 19.2, cost: 2304, pricePerLiter: 120, odometerReading: 19560, fuelType: 'Diesel' },
-  { id: 'ff7', vehicleId: 'v3', vehicle: 'TK-103', plate: 'FL-2024-03', date: '2026-06-12', time: '03:20 PM', location: 'New York, NY', station: 'BP - George Washington Br', quantity: 22.5, cost: 2750, pricePerLiter: 122, odometerReading: 62500, fuelType: 'Diesel' },
-  { id: 'ff8', vehicleId: 'v1', vehicle: 'TK-101', plate: 'FL-2024-01', date: '2026-06-12', time: '05:10 PM', location: 'Newark, NJ', station: 'Shell - McCarter Hwy', quantity: 20.0, cost: 2400, pricePerLiter: 120, odometerReading: 48400, fuelType: 'Diesel' },
+  { id: 'ff1', vehicleId: 'v1', vehicle: 'TK-101', plate: 'FL-2024-01', date: '2026-06-15', time: '07:45 AM', location: 'Princeton, NJ', station: 'Shell - Route 1', quantity: 28.5, cost: 3420, pricePerLiter: 120, odometerReading: 48250, fuelType: 'Diesel', lat: 40.3573, lng: -74.6672, fromLevelLiters: 24.0, toLevelLiters: 52.5, startTime: '07:36 AM', endTime: '07:45 AM' },
+  { id: 'ff2', vehicleId: 'v2', vehicle: 'ISABELA 04', plate: 'TK-102', date: '2026-06-15', time: '06:30 AM', location: 'Trenton, NJ', station: 'Petron - North Olden', quantity: 24.2, cost: 2904, pricePerLiter: 120, odometerReading: 35120, fuelType: 'Diesel', lat: 40.2206, lng: -74.7597, fromLevelLiters: 18.3, toLevelLiters: 42.5, startTime: '06:22 AM', endTime: '06:30 AM' },
+  { id: 'ff3', vehicleId: 'v3', vehicle: 'TK-103', plate: 'FL-2024-03', date: '2026-06-15', time: '05:15 AM', location: 'Trenton, NJ', station: 'Caltex - Route 206', quantity: 38.0, cost: 4560, pricePerLiter: 120, odometerReading: 62180, fuelType: 'Diesel', lat: 40.2206, lng: -74.7597, fromLevelLiters: 40.0, toLevelLiters: 78.0, startTime: '05:05 AM', endTime: '05:15 AM' },
+  { id: 'ff4', vehicleId: 'v4', vehicle: 'TK-104', plate: 'FL-2024-04', date: '2026-06-14', time: '08:00 AM', location: 'Edison, NJ', station: 'Shell - Oak Tree Rd', quantity: 21.8, cost: 2616, pricePerLiter: 120, odometerReading: 28940, fuelType: 'Diesel', lat: 40.5200, lng: -74.3400, fromLevelLiters: 26.1, toLevelLiters: 47.9, startTime: '07:53 AM', endTime: '08:00 AM' },
+  { id: 'ff5', vehicleId: 'v5', vehicle: 'TK-105', plate: 'FL-2024-05', date: '2026-06-14', time: '07:30 AM', location: 'New Brunswick, NJ', station: 'Tesla Supercharger - Rt 27', quantity: 18.5, cost: 2220, pricePerLiter: 120, odometerReading: 41050, fuelType: 'Electric', lat: 40.4862, lng: -74.4518, fromLevelLiters: 31.5, toLevelLiters: 50.0, startTime: '07:23 AM', endTime: '07:30 AM' },
+  { id: 'ff6', vehicleId: 'v6', vehicle: 'TK-106', plate: 'FL-2024-06', date: '2026-06-13', time: '06:45 AM', location: 'Hillsborough, NJ', station: 'Petron - Amwell Rd', quantity: 19.2, cost: 2304, pricePerLiter: 120, odometerReading: 19560, fuelType: 'Diesel', lat: 40.5073, lng: -74.6400, fromLevelLiters: 22.0, toLevelLiters: 41.2, startTime: '06:38 AM', endTime: '06:45 AM' },
+  { id: 'ff7', vehicleId: 'v3', vehicle: 'TK-103', plate: 'FL-2024-03', date: '2026-06-12', time: '03:20 PM', location: 'New York, NY', station: 'BP - George Washington Br', quantity: 22.5, cost: 2750, pricePerLiter: 122, odometerReading: 62500, fuelType: 'Diesel', lat: 40.7128, lng: -74.0060, fromLevelLiters: 36.0, toLevelLiters: 58.5, startTime: '03:11 PM', endTime: '03:20 PM' },
+  { id: 'ff8', vehicleId: 'v1', vehicle: 'TK-101', plate: 'FL-2024-01', date: '2026-06-12', time: '05:10 PM', location: 'Newark, NJ', station: 'Shell - McCarter Hwy', quantity: 20.0, cost: 2400, pricePerLiter: 120, odometerReading: 48400, fuelType: 'Diesel', lat: 40.7357, lng: -74.1724, fromLevelLiters: 28.0, toLevelLiters: 48.0, startTime: '05:02 PM', endTime: '05:10 PM' },
 ];
 
 export const idleRecords: IdleRecord[] = [
